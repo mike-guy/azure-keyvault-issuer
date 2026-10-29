@@ -1,0 +1,35 @@
+# Workflows use this as ./.github/actions/setup-tools, with zizmor's
+# self-repository finding ignored, as for the reusable e2e workflow: actionlint
+# does not yet accept GitHub's $/ syntax.
+name: Setup Tools
+description: Installs Go from go.mod and, with mise, the tools pinned in mise.toml that a job needs.
+
+inputs:
+  tools:
+    description: The mise tools to install (mise-action's install_args). Empty installs every tool.
+    required: false
+    default: ""
+  cache:
+    description: Whether to cache Go modules and mise's tools. The release jobs turn it off, so they build as a clean release does.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    # mise also needs Go to build its go: tools, such as govulncheck.
+    - name: Setup Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: ${{ inputs.cache }}
+    - name: Setup Mise
+      uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      env:
+        # The one pin of mise itself, for every workflow.
+        # renovate: datasource=github-releases depName=jdx/mise
+        MISE_VERSION: 2026.10.17
+      with:
+        version: ${{ env.MISE_VERSION }}
+        cache: ${{ inputs.cache }}
+        install_args: ${{ inputs.tools }}

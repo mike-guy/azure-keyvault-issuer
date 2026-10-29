@@ -1,0 +1,4 @@
+# The chart projects the workload identity token itself (no webhook).
+workloadIdentity:
+  clientID: 00000000-0000-0000-0000-000000000001
+  tenantID: 00000000-0000-0000-0000-000000000002

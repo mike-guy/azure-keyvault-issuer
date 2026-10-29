@@ -1,0 +1,207 @@
+suite: values schema
+templates:
+  - templates/serviceaccount.yaml
+release:
+  name: akvi
+  namespace: cert-manager
+tests:
+  - it: rejects an unknown top-level key
+    set:
+      replicaCountt: 2
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'replicaCountt' not allowed"
+
+  - it: rejects an unknown nested key
+    set:
+      workloadIdentity.clientId: 00000000-0000-0000-0000-000000000001
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'clientId' not allowed"
+
+  - it: rejects a replica count below one
+    set:
+      replicaCount: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/replicaCount'"
+
+  - it: rejects a malformed client ID
+    set:
+      workloadIdentity.clientID: not-a-guid
+      workloadIdentity.tenantID: 00000000-0000-0000-0000-000000000002
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/workloadIdentity/clientID'"
+
+  - it: rejects a malformed tenant ID
+    set:
+      workloadIdentity.tenantID: not-a-guid
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/workloadIdentity/tenantID'"
+
+  - it: rejects a token lifetime under ten minutes
+    set:
+      workloadIdentity.tokenExpirationSeconds: 599
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/workloadIdentity/tokenExpirationSeconds'"
+
+  - it: rejects an unknown pull policy
+    set:
+      image.pullPolicy: Sometimes
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/image/pullPolicy'"
+
+  - it: rejects a malformed image digest
+    set:
+      image.digest: sha256:abc
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/image/digest'"
+
+  - it: rejects an unknown log level
+    set:
+      controller.logLevel: verbose
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/controller/logLevel'"
+
+  - it: rejects an invalid retry duration
+    set:
+      controller.maxRetryDuration: five minutes
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/controller/maxRetryDuration'"
+
+  - it: rejects fewer than one concurrent worker
+    set:
+      controller.concurrentWorkers: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/controller/concurrentWorkers'"
+
+  - it: rejects a string where a boolean is required
+    set:
+      controller.issuerAmbientCredentials: "yes"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/controller/issuerAmbientCredentials'"
+
+  - it: rejects a network port out of range
+    set:
+      networkPolicy.egressPorts: [443, 70000]
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/networkPolicy/egressPorts/1'"
+
+  - it: rejects a tenantAccess entry without ServiceAccounts
+    set:
+      tenantAccess:
+        - namespace: team-a
+          serviceAccounts: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/tenantAccess/0/serviceAccounts'"
+
+  - it: rejects a tenantAccess entry with neither ServiceAccounts nor Secrets
+    set:
+      tenantAccess:
+        - namespace: team-a
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/tenantAccess/0'"
+
+  - it: rejects a tenantAccess entry with an empty Secret list
+    set:
+      tenantAccess:
+        - namespace: team-a
+          secrets: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/tenantAccess/0/secrets'"
+
+  - it: rejects an empty Secret name for ClusterIssuers
+    set:
+      clusterIssuer.secrets: [""]
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/clusterIssuer/secrets/0'"
+
+  - it: rejects a tenantAccess entry without a namespace
+    set:
+      tenantAccess:
+        - serviceAccounts: [team-a-issuer]
+    asserts:
+      - failedTemplate:
+          errorPattern: "missing property 'namespace'"
+
+  - it: rejects an empty ServiceAccount name for ClusterIssuers
+    set:
+      clusterIssuer.serviceAccounts: [""]
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/clusterIssuer/serviceAccounts/0'"
+
+  - it: rejects a vault URL on the wrong domain
+    set:
+      controller.allowedVaults: ["https://my-ca.vault.azure.cn"]
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/controller/allowedVaults/0'"
+
+  - it: rejects a plain-HTTP vault URL
+    set:
+      controller.allowedVaults: ["http://my-ca.vault.azure.net"]
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/controller/allowedVaults/0'"
+
+  - it: rejects a vault URL with a path
+    set:
+      controller.allowedVaults: ["https://my-ca.vault.azure.net/keys"]
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/controller/allowedVaults/0'"
+
+  - it: rejects a string for signCertificateSigningRequests
+    set:
+      controller.signCertificateSigningRequests: "yes"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/controller/signCertificateSigningRequests'"
+
+  - it: rejects an empty CA ConfigMap key
+    set:
+      metrics.serviceMonitor.caConfigMap.key: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/metrics/serviceMonitor/caConfigMap/key'"
+
+  - it: rejects an unknown metrics TLS key
+    set:
+      metrics.tls.secret: akvi-metrics-tls
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'secret' not allowed"
+
+  - it: accepts valid values for every constrained field
+    set:
+      workloadIdentity.clientID: 00000000-0000-0000-0000-000000000001
+      workloadIdentity.tenantID: 00000000-0000-0000-0000-000000000002
+      controller.allowedVaults:
+        - https://my-ca.vault.azure.net
+        - https://other-ca.vault.azure.net/
+      controller.maxRetryDuration: 1h30m
+      clusterIssuer.secrets: [shared-client-cert]
+      tenantAccess:
+        - namespace: team-a
+          serviceAccounts: [team-a-issuer]
+        - namespace: team-b
+          secrets: [team-b-client-cert]
+      podDisruptionBudget.maxUnavailable: 50%
+    asserts:
+      - isKind:
+          of: ServiceAccount

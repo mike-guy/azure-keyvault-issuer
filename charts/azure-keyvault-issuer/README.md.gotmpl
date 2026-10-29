@@ -1,0 +1,58 @@
+{{ template "chart.header" . }}
+{{ template "chart.deprecationWarning" . }}
+
+{{ template "chart.badgesSection" . }}
+
+{{ template "chart.description" . }}
+
+{{ template "chart.homepageLine" . }}
+
+The chart installs the CRDs and the controller, which runs under the `restricted`
+Pod Security Standard with no access to Secrets or ServiceAccount tokens until
+you grant it one by name. It needs Helm 4; Helm 3 is not tested.
+
+## Installing
+
+Once there is a release, install from GitHub's container registry. The chart and
+the controller are released separately, so the chart's version is not the
+controller's: each chart release says which controller it runs (`appVersion`), by
+image digest.
+
+```sh
+helm install azure-keyvault-issuer oci://ghcr.io/mike-guy/charts/azure-keyvault-issuer \
+  --namespace azure-keyvault-issuer --create-namespace \
+  --set workloadIdentity.clientID=<identity client ID> \
+  --set workloadIdentity.tenantID=<tenant ID>
+```
+
+Add `--set workloadIdentity.useWebhook=true` on AKS, so its workload identity
+webhook supplies the token; elsewhere the chart projects the token itself. Until
+there is a release, install from a checkout by replacing the `oci://` reference
+with the chart's directory. Each release's chart is signed and carries provenance;
+see [SECURITY.md](https://github.com/mike-guy/azure-keyvault-issuer/blob/main/SECURITY.md#verifying-a-release).
+
+Then:
+
+1. [Set up the CA and the Azure identity](https://github.com/mike-guy/azure-keyvault-issuer/blob/main/docs/azure-setup.md), and
+   [provision the CA](https://github.com/mike-guy/azure-keyvault-issuer/blob/main/docs/ca-provisioning.md).
+2. [Tell cert-manager to approve requests](https://github.com/mike-guy/azure-keyvault-issuer/blob/main/docs/approval.md) for these issuers.
+3. Create an `AzureKeyVaultIssuer` or `AzureKeyVaultClusterIssuer`: see the
+   [README](https://github.com/mike-guy/azure-keyvault-issuer/blob/main/README.md#5-create-an-issuer).
+
+Settings that need more than a value:
+
+- `clusterIssuer.serviceAccounts` and `clusterIssuer.secrets` name what
+  ClusterIssuers may use; `tenantAccess` does the same per namespace. See
+  [Letting teams use their own identity](https://github.com/mike-guy/azure-keyvault-issuer/blob/main/docs/tenant-rbac.md).
+- `metrics.tls.secretName` and `metrics.serviceMonitor.*`: see
+  [Metrics](https://github.com/mike-guy/azure-keyvault-issuer/blob/main/docs/metrics.md).
+- `networkPolicy.enabled`: see
+  [Network policy](https://github.com/mike-guy/azure-keyvault-issuer/blob/main/docs/network-policy.md).
+- `controller.signCertificateSigningRequests`: see
+  [Kubernetes CertificateSigningRequests](https://github.com/mike-guy/azure-keyvault-issuer/blob/main/docs/certificatesigningrequests.md).
+
+{{ template "chart.requirementsSection" . }}
+
+{{ template "chart.valuesSection" . }}
+
+{{ template "helm-docs.versionFooter" . }}

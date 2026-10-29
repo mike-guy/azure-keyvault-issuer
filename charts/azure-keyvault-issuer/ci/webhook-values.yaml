@@ -1,0 +1,5 @@
+# The Azure workload identity webhook injects the token (as on AKS).
+workloadIdentity:
+  clientID: 00000000-0000-0000-0000-000000000001
+  tenantID: 00000000-0000-0000-0000-000000000002
+  useWebhook: true

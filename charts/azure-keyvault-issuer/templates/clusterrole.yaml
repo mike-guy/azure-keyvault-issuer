@@ -1,0 +1,71 @@
+{{- if .Values.rbac.create }}
+# What the controller needs everywhere in the cluster: its own kinds, the
+# requests it signs and events. It has no access to Secrets or ServiceAccounts
+# here; see the Roles.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "akvi.fullname" . }}-controller
+  labels:
+    {{- include "akvi.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["azure-keyvault-issuer.mike-guy.github.io"]
+    resources: ["azurekeyvaultissuers", "azurekeyvaultclusterissuers"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["azure-keyvault-issuer.mike-guy.github.io"]
+    resources: ["azurekeyvaultissuers/status", "azurekeyvaultclusterissuers/status"]
+    verbs: ["patch"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificaterequests"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificaterequests/status"]
+    verbs: ["patch"]
+  - apiGroups: ["events.k8s.io"]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  {{- if .Values.controller.signCertificateSigningRequests }}
+  # Kubernetes CertificateSigningRequests. The API server lets the controller
+  # write a certificate only for signer names it may sign for: its
+  # ClusterIssuers. It cannot approve them.
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["certificatesigningrequests"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["certificatesigningrequests/status"]
+    verbs: ["patch"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["signers"]
+    resourceNames: ["azurekeyvaultclusterissuers.azure-keyvault-issuer.mike-guy.github.io/*"]
+    verbs: ["sign"]
+  {{- end }}
+{{- if .Values.metrics.enabled }}
+---
+# Secure metrics check each caller with a TokenReview and a
+# SubjectAccessReview.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "akvi.fullname" . }}-metrics-auth
+  labels:
+    {{- include "akvi.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["subjectaccessreviews"]
+    verbs: ["create"]
+---
+# Bind this to whatever scrapes the metrics, for example Prometheus.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "akvi.fullname" . }}-metrics-reader
+  labels:
+    {{- include "akvi.labels" . | nindent 4 }}
+rules:
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+{{- end }}
+{{- end }}

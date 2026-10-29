@@ -1,0 +1,253 @@
+name: pr checks
+
+on:
+  pull_request:
+
+permissions: {}
+
+# Each job installs only the tools it runs (.github/actions/setup-tools), and
+# mise exec must not fetch the rest. pre-commit needs python too.
+env:
+  MISE_EXEC_AUTO_INSTALL: "false"
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Tools
+        uses: ./.github/actions/setup-tools # zizmor: ignore[self-repository]
+        with:
+          tools: aqua:golangci/golangci-lint
+      - name: Check Formatting, Tidiness And Lint
+        run: make fmt-check tidy-check lint
+
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Run Tests
+        run: make test
+
+  fuzz-smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Run Fuzz Tests
+        run: make fuzz FUZZTIME=15s
+
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # No caches, so this builds the way a release does.
+      - name: Setup Tools
+        uses: ./.github/actions/setup-tools # zizmor: ignore[self-repository]
+        with:
+          cache: false
+          tools: aqua:goreleaser/goreleaser aqua:jqlang/jq aqua:caarlos0/svu aqua:mikefarah/yq
+      - name: Build Release Snapshot
+        run: make release-check snapshot
+      - name: Test Release Decisions
+        run: make release-versions-test
+
+  generate-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Tools
+        uses: ./.github/actions/setup-tools # zizmor: ignore[self-repository]
+        with:
+          tools: go:sigs.k8s.io/controller-tools/cmd/controller-gen
+      - name: Check Generated Files
+        run: make generate-check
+
+  envtest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Tools
+        uses: ./.github/actions/setup-tools # zizmor: ignore[self-repository]
+        with:
+          tools: aqua:kubernetes-sigs/controller-runtime/setup-envtest
+      - name: Run Integration Tests
+        run: make test-envtest
+
+  helm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Tools
+        uses: ./.github/actions/setup-tools # zizmor: ignore[self-repository]
+        with:
+          tools: aqua:helm/helm aqua:norwoodj/helm-docs aqua:yannh/kubeconform github:helm-unittest/helm-unittest
+      - name: Lint, Test And Validate Chart
+        run: make helm-lint helm-test helm-validate helm-docs-check
+
+  # Builds the image and installs the chart into a kind cluster, once for each
+  # profile in charts/azure-keyvault-issuer/ci. The namespace enforces the
+  # restricted Pod Security Standard.
+  helm-install:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Tools
+        uses: ./.github/actions/setup-tools # zizmor: ignore[self-repository]
+        with:
+          tools: aqua:helm/helm aqua:helm/chart-testing aqua:kubernetes-sigs/kind aqua:kubernetes/kubectl aqua:ko-build/ko
+      - name: Install Chart On Kind
+        run: make helm-ct-install
+
+  terraform:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Tools
+        uses: ./.github/actions/setup-tools # zizmor: ignore[self-repository]
+        with:
+          tools: aqua:hashicorp/terraform aqua:terraform-linters/tflint
+      - name: Check Terraform
+        run: make tf-fmt-check tf-validate tf-lint
+
+  actions-lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Tools
+        uses: ./.github/actions/setup-tools # zizmor: ignore[self-repository]
+        with:
+          tools: aqua:rhysd/actionlint aqua:zizmorcore/zizmor
+      - name: Lint Workflows
+        run: make actions-lint
+        env:
+          # Lets zizmor check the actions used against known advisories.
+          GH_TOKEN: ${{ github.token }}
+
+  pre-commit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Tools
+        uses: ./.github/actions/setup-tools # zizmor: ignore[self-repository]
+        with:
+          tools: aqua:pre-commit/pre-commit python
+      - name: Cache Pre-Commit Hooks
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+      - name: Run Pre-Commit Hooks
+        run: make pre-commit
+        env:
+          # These hooks run checks that have a job of their own: the make
+          # targets above, and gitleaks in security.yml.
+          SKIP: gitleaks,go-fmt,go-tidy,go-build,go-lint,go-test,actions-lint,release-check,generate,helm,tf-fmt,tf-validate
+
+  commits:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Tools
+        uses: ./.github/actions/setup-tools # zizmor: ignore[self-repository]
+        with:
+          tools: aqua:pre-commit/pre-commit python
+      - name: Check Conventional Commits
+        run: make commits-check BASE="$BASE"
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+      - name: Check Pull Request Title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$TITLE" > "$RUNNER_TEMP/title"
+          if ! mise exec -- pre-commit run conventional-pre-commit --hook-stage commit-msg \
+              --commit-msg-filename "$RUNNER_TEMP/title" > /dev/null; then
+            echo "::error::The pull request title is not a conventional commit message"
+            exit 1
+          fi
+
+  dependency-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Review Dependencies
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          deny-licenses: AGPL-1.0-only, AGPL-1.0-or-later, AGPL-3.0-only, AGPL-3.0-or-later, GPL-2.0-only, GPL-2.0-or-later, GPL-3.0-only, GPL-3.0-or-later, LGPL-2.0-only, LGPL-2.0-or-later, LGPL-2.1-only, LGPL-2.1-or-later, LGPL-3.0-only, LGPL-3.0-or-later, SSPL-1.0

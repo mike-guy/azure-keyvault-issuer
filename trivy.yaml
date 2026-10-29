@@ -1,0 +1,19 @@
+# Settings for Trivy: 'trivy fs .' (make trivy, which also scans the Terraform
+# for misconfigurations), the rendered chart (make trivy-chart) and the image
+# (make trivy-image), all run by the security workflow.
+scan:
+  scanners:
+    - vuln
+    - secret
+    - license
+    - misconfig
+  skip-dirs:
+    - bin
+    - dist
+    - .terraform
+severity:
+  - HIGH
+  - CRITICAL
+exit-code: 1
+vulnerability:
+  ignore-unfixed: true

@@ -1,0 +1,428 @@
+suite: rbac
+templates:
+  - templates/clusterrole.yaml
+  - templates/clusterrolebinding.yaml
+  - templates/role.yaml
+  - templates/rolebinding.yaml
+release:
+  name: akvi
+  namespace: cert-manager
+tests:
+  - it: grants the controller exactly what it needs cluster-wide
+    template: templates/clusterrole.yaml
+    documentSelector:
+      path: metadata.name
+      value: akvi-azure-keyvault-issuer-controller
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [azure-keyvault-issuer.mike-guy.github.io]
+              resources: [azurekeyvaultissuers, azurekeyvaultclusterissuers]
+              verbs: [get, list, watch]
+            - apiGroups: [azure-keyvault-issuer.mike-guy.github.io]
+              resources: [azurekeyvaultissuers/status, azurekeyvaultclusterissuers/status]
+              verbs: [patch]
+            - apiGroups: [cert-manager.io]
+              resources: [certificaterequests]
+              verbs: [get, list, watch]
+            - apiGroups: [cert-manager.io]
+              resources: [certificaterequests/status]
+              verbs: [patch]
+            - apiGroups: [events.k8s.io]
+              resources: [events]
+              verbs: [create, patch]
+
+  - it: lets the controller sign Kubernetes CertificateSigningRequests for its ClusterIssuers only, and not approve them
+    set:
+      controller.signCertificateSigningRequests: true
+    template: templates/clusterrole.yaml
+    documentSelector:
+      path: metadata.name
+      value: akvi-azure-keyvault-issuer-controller
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [azure-keyvault-issuer.mike-guy.github.io]
+              resources: [azurekeyvaultissuers, azurekeyvaultclusterissuers]
+              verbs: [get, list, watch]
+            - apiGroups: [azure-keyvault-issuer.mike-guy.github.io]
+              resources: [azurekeyvaultissuers/status, azurekeyvaultclusterissuers/status]
+              verbs: [patch]
+            - apiGroups: [cert-manager.io]
+              resources: [certificaterequests]
+              verbs: [get, list, watch]
+            - apiGroups: [cert-manager.io]
+              resources: [certificaterequests/status]
+              verbs: [patch]
+            - apiGroups: [events.k8s.io]
+              resources: [events]
+              verbs: [create, patch]
+            - apiGroups: [certificates.k8s.io]
+              resources: [certificatesigningrequests]
+              verbs: [get, list, watch]
+            - apiGroups: [certificates.k8s.io]
+              resources: [certificatesigningrequests/status]
+              verbs: [patch]
+            - apiGroups: [certificates.k8s.io]
+              resources: [signers]
+              resourceNames: [azurekeyvaultclusterissuers.azure-keyvault-issuer.mike-guy.github.io/*]
+              verbs: [sign]
+
+  - it: has the metrics authentication and reader roles, and nothing else
+    template: templates/clusterrole.yaml
+    asserts:
+      - hasDocuments:
+          count: 3
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [authentication.k8s.io]
+              resources: [tokenreviews]
+              verbs: [create]
+            - apiGroups: [authorization.k8s.io]
+              resources: [subjectaccessreviews]
+              verbs: [create]
+        documentSelector:
+          path: metadata.name
+          value: akvi-azure-keyvault-issuer-metrics-auth
+      - equal:
+          path: rules
+          value:
+            - nonResourceURLs: [/metrics]
+              verbs: [get]
+        documentSelector:
+          path: metadata.name
+          value: akvi-azure-keyvault-issuer-metrics-reader
+
+  - it: grants no wildcards, and no access to Secrets, cluster-wide
+    template: templates/clusterrole.yaml
+    set:
+      clusterIssuer.serviceAccounts: [shared-issuer]
+      clusterIssuer.secrets: [shared-client-cert]
+      tenantAccess:
+        - namespace: team-a
+          secrets: [team-a-client-cert]
+    asserts:
+      - notMatchRegex:
+          path: rules[0].resources[0]
+          pattern: secrets|serviceaccounts|\*
+      - notContains:
+          path: rules
+          content:
+            resources: [secrets]
+          any: true
+
+  - it: binds the controller's ServiceAccount
+    template: templates/clusterrolebinding.yaml
+    documentSelector:
+      path: metadata.name
+      value: akvi-azure-keyvault-issuer-controller
+    asserts:
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: akvi-azure-keyvault-issuer
+              namespace: cert-manager
+
+  - it: omits the metrics RBAC when metrics are off
+    set:
+      metrics.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: templates/clusterrole.yaml
+      - hasDocuments:
+          count: 1
+        template: templates/clusterrolebinding.yaml
+
+  - it: grants leader election in the cluster resource namespace and nothing else by default
+    template: templates/role.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.namespace
+          value: cert-manager
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [coordination.k8s.io]
+              resources: [leases]
+              verbs: [get, create, update]
+            - apiGroups: [""]
+              resources: [events]
+              verbs: [create, patch]
+
+  - it: lets ClusterIssuers use only the listed ServiceAccounts
+    template: templates/role.yaml
+    set:
+      clusterIssuer.serviceAccounts: [shared-issuer]
+    documentSelector:
+      path: metadata.name
+      value: akvi-azure-keyvault-issuer-token
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: cert-manager
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [serviceaccounts/token]
+              resourceNames: [shared-issuer]
+              verbs: [create]
+
+  - it: puts the token Role in the configured cluster resource namespace
+    template: templates/role.yaml
+    set:
+      controller.clusterResourceNamespace: issuers
+      clusterIssuer.serviceAccounts: [shared-issuer]
+    documentSelector:
+      path: metadata.name
+      value: akvi-azure-keyvault-issuer-token
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: issuers
+
+  - it: grants token access in a tenant namespace for the named ServiceAccounts only
+    template: templates/role.yaml
+    set:
+      tenantAccess:
+        - namespace: team-a
+          serviceAccounts: [team-a-issuer]
+    documentSelector:
+      path: metadata.name
+      value: akvi-azure-keyvault-issuer-token
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: team-a
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [serviceaccounts/token]
+              resourceNames: [team-a-issuer]
+              verbs: [create]
+
+  - it: binds each token Role to the controller
+    template: templates/rolebinding.yaml
+    set:
+      tenantAccess:
+        - namespace: team-a
+          serviceAccounts: [team-a-issuer]
+    documentSelector:
+      path: metadata.name
+      value: akvi-azure-keyvault-issuer-token
+    asserts:
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: akvi-azure-keyvault-issuer
+              namespace: cert-manager
+
+  - it: refuses the controller's own ServiceAccount for ClusterIssuers
+    template: templates/rolebinding.yaml
+    set:
+      clusterIssuer.serviceAccounts: [akvi-azure-keyvault-issuer]
+    asserts:
+      - failedTemplate:
+          errorPattern: the controller's own ServiceAccount "akvi-azure-keyvault-issuer" must not be listed for token access
+
+  - it: refuses the controller's own ServiceAccount for Issuers in its namespace
+    template: templates/rolebinding.yaml
+    set:
+      tenantAccess:
+        - namespace: cert-manager
+          serviceAccounts: [akvi-azure-keyvault-issuer]
+    asserts:
+      - failedTemplate:
+          errorPattern: the controller's own ServiceAccount "akvi-azure-keyvault-issuer" must not be listed for token access
+
+  - it: allows the same name in another namespace
+    template: templates/role.yaml
+    set:
+      tenantAccess:
+        - namespace: team-a
+          serviceAccounts: [akvi-azure-keyvault-issuer]
+    documentSelector:
+      path: metadata.namespace
+      value: team-a
+    asserts:
+      - isKind:
+          of: Role
+
+  - it: creates nothing when RBAC is not wanted
+    set:
+      rbac.create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/clusterrole.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/clusterrolebinding.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/role.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/rolebinding.yaml
+
+  - it: merges entries that share a namespace into one token Role
+    template: templates/role.yaml
+    set:
+      clusterIssuer.serviceAccounts: [shared-issuer]
+      tenantAccess:
+        - namespace: cert-manager
+          serviceAccounts: [team-a-issuer]
+        - namespace: cert-manager
+          serviceAccounts: [shared-issuer, team-b-issuer]
+    documentSelector:
+      path: metadata.name
+      value: akvi-azure-keyvault-issuer-token
+    asserts:
+      - equal:
+          path: rules[0].resourceNames
+          value: [shared-issuer, team-a-issuer, team-b-issuer]
+
+  - it: renders one token Role and one RoleBinding per namespace
+    set:
+      clusterIssuer.serviceAccounts: [shared-issuer]
+      tenantAccess:
+        - namespace: cert-manager
+          serviceAccounts: [team-a-issuer]
+        - namespace: team-a
+          serviceAccounts: [team-a-issuer]
+    asserts:
+      - hasDocuments:
+          count: 3
+        template: templates/role.yaml
+      - hasDocuments:
+          count: 3
+        template: templates/rolebinding.yaml
+
+  - it: lets ClusterIssuers read only the listed Secrets
+    template: templates/role.yaml
+    set:
+      clusterIssuer.secrets: [shared-client-cert]
+    documentSelector:
+      path: metadata.name
+      value: akvi-azure-keyvault-issuer-secrets
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: cert-manager
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [secrets]
+              resourceNames: [shared-client-cert]
+              verbs: [get]
+
+  - it: puts the Secret Role in the configured cluster resource namespace
+    template: templates/role.yaml
+    set:
+      controller.clusterResourceNamespace: issuers
+      clusterIssuer.secrets: [shared-client-cert]
+    documentSelector:
+      path: metadata.name
+      value: akvi-azure-keyvault-issuer-secrets
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: issuers
+
+  - it: grants Secret access in a tenant namespace for the named Secrets only
+    template: templates/role.yaml
+    set:
+      tenantAccess:
+        - namespace: team-a
+          secrets: [team-a-client-cert]
+    documentSelector:
+      path: metadata.namespace
+      value: team-a
+    asserts:
+      - equal:
+          path: metadata.name
+          value: akvi-azure-keyvault-issuer-secrets
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [secrets]
+              resourceNames: [team-a-client-cert]
+              verbs: [get]
+
+  - it: renders no Secret Role when no Secrets are listed
+    template: templates/role.yaml
+    set:
+      clusterIssuer.secrets: []
+      clusterIssuer.serviceAccounts: [shared-issuer]
+    asserts:
+      - hasDocuments:
+          count: 2
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [secrets]
+            verbs: [get]
+          any: true
+
+  - it: binds each Secret Role to the controller
+    template: templates/rolebinding.yaml
+    set:
+      tenantAccess:
+        - namespace: team-a
+          secrets: [team-a-client-cert]
+    documentSelector:
+      path: metadata.namespace
+      value: team-a
+    asserts:
+      - equal:
+          path: roleRef.name
+          value: akvi-azure-keyvault-issuer-secrets
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: akvi-azure-keyvault-issuer
+              namespace: cert-manager
+
+  - it: merges Secret entries that share a namespace into one Secret Role
+    template: templates/role.yaml
+    set:
+      clusterIssuer.secrets: [shared-client-cert]
+      tenantAccess:
+        - namespace: cert-manager
+          secrets: [team-a-client-secret]
+        - namespace: cert-manager
+          secrets: [shared-client-cert, team-b-client-cert]
+    documentSelector:
+      path: metadata.name
+      value: akvi-azure-keyvault-issuer-secrets
+    asserts:
+      - equal:
+          path: rules[0].resourceNames
+          value: [shared-client-cert, team-a-client-secret, team-b-client-cert]
+
+  - it: renders separate token and Secret Roles for a namespace with both
+    set:
+      tenantAccess:
+        - namespace: team-a
+          serviceAccounts: [team-a-issuer]
+          secrets: [team-a-client-cert]
+    asserts:
+      - hasDocuments:
+          count: 3
+        template: templates/role.yaml
+      - hasDocuments:
+          count: 3
+        template: templates/rolebinding.yaml

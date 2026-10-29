@@ -1,0 +1,151 @@
+// Renovate keeps every pinned version up to date: Go modules and the Go
+// toolchain (go.mod), development tools (mise.toml, mise.ci.toml and their
+// lock files), GitHub Actions, pre-commit hooks, Terraform providers and mise's
+// own version in the workflows. It runs weekly from
+// .github/workflows/renovate.yml. See CONTRIBUTING.md.
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: [
+    "config:best-practices",
+    ":enablePreCommit",
+    // The MISE_VERSION line in .github/actions/setup-tools, under a
+    // '# renovate:' comment.
+    "customManagers:githubActionsVersions",
+  ],
+  dependencyDashboard: true,
+  labels: ["dependencies"],
+
+  // Nothing merges by itself: every update waits for a person.
+  automerge: false,
+
+  // Every update waits three days after release. A tool's binaries can lag its
+  // release: Python is built by python-build-standalone after CPython tags it,
+  // and without the wait mise.lock loses its download URLs and every locked CI
+  // job fails. The wait also gives a bad release time to be pulled. Three days
+  // is a starting value, not a measured one.
+  minimumReleaseAge: "3 days",
+
+  // Run 'go mod tidy' after each Go module update, and rewrite the import paths
+  // in the code when a major update changes them (/v7 to /v9). Without that, the
+  // new module is unused and 'go mod tidy' drops it again.
+  postUpdateOptions: ["gomodTidy", "gomodUpdateImportPaths"],
+
+  // Conventional commits. chore(deps) doesn't call for a release; fix(deps)
+  // (below) makes the next release at least a patch.
+  semanticCommits: "enabled",
+  semanticCommitType: "chore",
+  semanticCommitScope: "deps",
+
+  // Security fixes are raised straight away, whatever the grouping or the
+  // release-age wait.
+  vulnerabilityAlerts: {
+    labels: ["dependencies", "security"],
+    minimumReleaseAge: null,
+  },
+  osvVulnerabilityAlerts: true,
+
+  customManagers: [
+    {
+      description: "The cert-manager chart version the e2e suite installs, under a '// renovate:' comment",
+      customType: "regex",
+      managerFilePatterns: ["/^test\\/e2e\\/.+\\.go$/"],
+      matchStrings: [
+        "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n\\s*\\w+ = \"(?<currentValue>[^\"]+)\"",
+      ],
+    },
+    {
+      description: "The distroless base image in .goreleaser.yaml, under a '# renovate:' comment",
+      customType: "regex",
+      managerFilePatterns: ["/^\\.goreleaser\\.yaml$/"],
+      matchStrings: [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n\\s*base_image: \\S+?:(?<currentValue>[\\w.-]+)@(?<currentDigest>sha256:[a-f0-9]+)",
+      ],
+    },
+    {
+      // A safety net for the manual chart bump after a controller release. Only
+      // published v releases count: Renovate skips drafts, and the regex drops
+      // the chart's own chart-v releases.
+      description: "The controller release the chart runs (appVersion in Chart.yaml), under a '# renovate:' comment",
+      customType: "regex",
+      managerFilePatterns: ["/^charts\\/azure-keyvault-issuer\\/Chart\\.yaml$/"],
+      matchStrings: [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\nappVersion: (?<currentValue>\\S+)",
+      ],
+      extractVersionTemplate: "^v(?<version>\\d+\\.\\d+\\.\\d+)$",
+    },
+  ],
+
+  packageRules: [
+    {
+      description: "The chart's appVersion. Renovate changes only that line, so the pull request says what is left to do; the global three-day wait gives the manual bump the first go",
+      matchManagers: ["custom.regex"],
+      matchDepNames: ["mike-guy/azure-keyvault-issuer"],
+      semanticCommitType: "feat",
+      semanticCommitScope: "chart",
+      commitMessageTopic: "the controller the chart runs",
+      prBodyNotes: [
+        "Before merging, raise `version` in `charts/azure-keyvault-issuer/Chart.yaml` and run `make helm-docs` on this branch (`helm-docs-check` fails until then). Merging releases the chart; see CONTRIBUTING.md, Releasing the chart.",
+      ],
+    },
+    {
+      description: "The base image goes into every release, so an update calls for a patch release",
+      matchDatasources: ["docker"],
+      matchDepNames: ["gcr.io/distroless/static-debian13"],
+      semanticCommitType: "fix",
+    },
+    {
+      description: "Go modules and the Go toolchain are compiled into the binary, so an update calls for a patch release",
+      matchManagers: ["gomod"],
+      semanticCommitType: "fix",
+    },
+    {
+      description: "One pull request per kind of dependency for minor and patch updates; majors stay separate",
+      matchManagers: ["gomod"],
+      matchUpdateTypes: ["minor", "patch", "digest"],
+      groupName: "Go modules",
+    },
+    {
+      description: "Ginkgo and Gomega are used only by the e2e suite, so they never reach the binary: no release, and they join the e2e tooling group. After the Go modules rule, which would otherwise win",
+      matchManagers: ["gomod"],
+      matchDepNames: ["github.com/onsi/ginkgo/v2", "github.com/onsi/gomega"],
+      semanticCommitType: "chore",
+      groupName: "e2e tooling",
+      schedule: ["before 6am on the first day of the month"],
+    },
+    {
+      matchManagers: ["mise"],
+      matchUpdateTypes: ["minor", "patch"],
+      groupName: "development tools",
+    },
+    {
+      description: "mise itself goes with the tools it installs",
+      matchManagers: ["custom.regex"],
+      matchDepNames: ["jdx/mise"],
+      matchUpdateTypes: ["minor", "patch"],
+      groupName: "development tools",
+    },
+    {
+      matchManagers: ["github-actions"],
+      matchUpdateTypes: ["minor", "patch", "digest", "pinDigest"],
+      groupName: "GitHub Actions",
+    },
+    {
+      description: "Terraform providers and modules only matter to the e2e stack, and each update triggers an AKS run, so they arrive together and rarely",
+      matchManagers: ["terraform", "terraform-version", "tflint-plugin"],
+      groupName: "e2e infrastructure",
+      schedule: ["before 6am on the first day of the month"],
+    },
+    {
+      description: "kind node images and cert-manager versions used only by e2e and envtest",
+      matchFileNames: ["test/**"],
+      matchUpdateTypes: ["minor", "patch"],
+      groupName: "e2e tooling",
+      schedule: ["before 6am on the first day of the month"],
+    },
+    {
+      matchManagers: ["pre-commit"],
+      matchUpdateTypes: ["minor", "patch"],
+      groupName: "pre-commit hooks",
+    },
+  ],
+}

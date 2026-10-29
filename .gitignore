@@ -1,0 +1,28 @@
+# Build output
+/bin/
+/dist/
+
+# Test output
+coverage.out
+*.test
+*.prof
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Terraform: providers, and the ephemeral state of an e2e run. Lock files are committed.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+crash.log
+
+# e2e scratch files: the kubeconfig, the kind cluster's JWKS, Terraform outputs,
+# and the throwaway test PKI with its keys
+/test/e2e/.work/
+
+# Terraform backend settings hold account names only, but are per-maintainer.
+backend.hcl

@@ -1,0 +1,200 @@
+{{- $ambient := ne .Values.workloadIdentity.clientID "" }}
+{{- $project := and $ambient (not .Values.workloadIdentity.useWebhook) }}
+{{- $metricsTLS := and .Values.metrics.enabled .Values.metrics.tls.secretName }}
+{{- if and $ambient (not .Values.workloadIdentity.tenantID) }}
+{{- fail "workloadIdentity.tenantID is required when workloadIdentity.clientID is set" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "akvi.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akvi.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "akvi.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "akvi.selectorLabels" . | nindent 8 }}
+        {{- if and $ambient .Values.workloadIdentity.useWebhook }}
+        azure.workload.identity/use: "true"
+        {{- end }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "akvi.serviceAccountName" . }}
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      containers:
+        - name: controller
+          image: {{ include "akvi.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --log-level={{ .Values.controller.logLevel }}
+            {{- with .Values.controller.clusterResourceNamespace }}
+            - --cluster-resource-namespace={{ . }}
+            {{- end }}
+            - --cluster-issuer-ambient-credentials={{ .Values.controller.clusterIssuerAmbientCredentials }}
+            - --issuer-ambient-credentials={{ .Values.controller.issuerAmbientCredentials }}
+            {{- with .Values.controller.allowedVaults }}
+            - --issuer-allowed-vaults={{ join "," . }}
+            {{- end }}
+            - --max-retry-duration={{ .Values.controller.maxRetryDuration }}
+            - --concurrent-workers={{ .Values.controller.concurrentWorkers }}
+            {{- if .Values.controller.signCertificateSigningRequests }}
+            - --sign-certificatesigningrequests
+            {{- end }}
+            - --graceful-shutdown-timeout={{ .Values.controller.gracefulShutdownTimeout }}
+            - --health-probe-bind-address=:8081
+            - --metrics-bind-address={{ ternary ":8443" "0" .Values.metrics.enabled }}
+            {{- if $metricsTLS }}
+            - --metrics-cert-path=/var/run/secrets/metrics-tls
+            {{- end }}
+            {{- with .Values.controller.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- with .Values.resources.limits }}
+            {{- if .memory }}
+            - name: MEMORY_LIMIT_BYTES
+              valueFrom:
+                resourceFieldRef:
+                  containerName: controller
+                  resource: limits.memory
+            {{- end }}
+            {{- end }}
+            {{- if $project }}
+            - name: AZURE_CLIENT_ID
+              value: {{ .Values.workloadIdentity.clientID | quote }}
+            - name: AZURE_TENANT_ID
+              value: {{ .Values.workloadIdentity.tenantID | quote }}
+            - name: AZURE_FEDERATED_TOKEN_FILE
+              value: /var/run/secrets/azure/tokens/azure-identity-token
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: 8443
+              protocol: TCP
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: kube-api-access
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+            {{- if $project }}
+            - name: azure-identity-token
+              mountPath: /var/run/secrets/azure/tokens
+              readOnly: true
+            {{- end }}
+            {{- if $metricsTLS }}
+            - name: metrics-tls
+              mountPath: /var/run/secrets/metrics-tls
+              readOnly: true
+            {{- end }}
+      volumes:
+        # Scratch space, because the root filesystem is read-only.
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+        # The API token, mounted as Kubernetes would if it were automounted.
+        - name: kube-api-access
+          projected:
+            defaultMode: 0444
+            sources:
+              - serviceAccountToken:
+                  expirationSeconds: 3607
+                  path: token
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        fieldPath: metadata.namespace
+        {{- if $project }}
+        # The workload identity token, which Entra exchanges for an Azure token.
+        - name: azure-identity-token
+          projected:
+            defaultMode: 0444
+            sources:
+              - serviceAccountToken:
+                  audience: api://AzureADTokenExchange
+                  expirationSeconds: {{ .Values.workloadIdentity.tokenExpirationSeconds }}
+                  path: azure-identity-token
+        {{- end }}
+        {{- if $metricsTLS }}
+        # The metrics certificate. Optional, so the pod starts before the
+        # Secret is issued, which may be by this controller; it then serves a
+        # self-signed certificate until it restarts.
+        - name: metrics-tls
+          secret:
+            secretName: {{ .Values.metrics.tls.secretName }}
+            optional: true
+            defaultMode: 0440
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- range .Values.topologySpreadConstraints }}
+        - {{- toYaml (merge (dict "labelSelector" (dict "matchLabels" (include "akvi.selectorLabels" $ | fromYaml))) .) | nindent 10 }}
+        {{- end }}
+      {{- end }}

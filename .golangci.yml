@@ -1,0 +1,88 @@
+# golangci-lint v2 configuration. The version is pinned in mise.toml; run it
+# with 'make lint' (or 'make fmt' for the formatters).
+version: "2"
+
+run:
+  timeout: 5m
+  # Lint the envtest integration tests and the end-to-end tests too; they
+  # compile only with these tags.
+  build-tags:
+    - integration
+    - e2e
+
+linters:
+  # errcheck, govet, ineffassign, staticcheck and unused.
+  default: standard
+  enable:
+    # HTTP correctness.
+    - bodyclose
+    - noctx
+    # Errors.
+    - errname
+    - errorlint
+    - nilerr
+    - nilnil
+    # Security.
+    - gosec
+    # Style and simplification.
+    - gocritic
+    - godot
+    - misspell
+    - nolintlint
+    - revive
+    - unconvert
+    # Correctness.
+    - containedctx # contexts are passed, not stored; one documented exception in internal/keyvault
+    - exhaustive
+    - forcetypeassert
+    - sloglint
+    # Test conventions: t.Parallel and the current testing helpers.
+    - paralleltest
+    - tparallel
+    - usetesting
+    # Ginkgo and Gomega, used only by the e2e tests.
+    - ginkgolinter
+    # Dependencies.
+    - gomoddirectives
+
+  settings:
+    exhaustive:
+      default-signifies-exhaustive: true
+    revive:
+      rules:
+        - name: dot-imports
+          arguments:
+            - allowedPackages:
+                - github.com/onsi/ginkgo/v2
+                - github.com/onsi/gomega
+    misspell:
+      # The project is written in British English.
+      locale: UK
+    sloglint:
+      kv-only: true
+      no-global: all
+
+  exclusions:
+    generated: lax
+    presets:
+      - std-error-handling
+    rules:
+      # Ginkgo specs run in order; TestE2E is the suite's one entry point.
+      - path: test/e2e/
+        linters:
+          - paralleltest
+          - tparallel
+      - path: _test\.go
+        linters:
+          - errorlint # tests compare error identity on purpose
+          - forcetypeassert
+          - gosec
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/mike-guy/azure-keyvault-issuer
