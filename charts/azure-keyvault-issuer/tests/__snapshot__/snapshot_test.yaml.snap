@@ -1,0 +1,2788 @@
+renders the defaults:
+  1: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-controller
+    rules:
+      - apiGroups:
+          - azure-keyvault-issuer.mike-guy.github.io
+        resources:
+          - azurekeyvaultissuers
+          - azurekeyvaultclusterissuers
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - azure-keyvault-issuer.mike-guy.github.io
+        resources:
+          - azurekeyvaultissuers/status
+          - azurekeyvaultclusterissuers/status
+        verbs:
+          - patch
+      - apiGroups:
+          - cert-manager.io
+        resources:
+          - certificaterequests
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - cert-manager.io
+        resources:
+          - certificaterequests/status
+        verbs:
+          - patch
+      - apiGroups:
+          - events.k8s.io
+        resources:
+          - events
+        verbs:
+          - create
+          - patch
+  2: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    rules:
+      - apiGroups:
+          - authentication.k8s.io
+        resources:
+          - tokenreviews
+        verbs:
+          - create
+      - apiGroups:
+          - authorization.k8s.io
+        resources:
+          - subjectaccessreviews
+        verbs:
+          - create
+  3: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-reader
+    rules:
+      - nonResourceURLs:
+          - /metrics
+        verbs:
+          - get
+  4: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: akvi-azure-keyvault-issuer-controller
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  5: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  6: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer
+      namespace: cert-manager
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/component: controller
+          app.kubernetes.io/instance: akvi
+          app.kubernetes.io/name: azure-keyvault-issuer
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: controller
+            app.kubernetes.io/instance: akvi
+            app.kubernetes.io/name: azure-keyvault-issuer
+        spec:
+          automountServiceAccountToken: false
+          containers:
+            - args:
+                - --log-level=info
+                - --cluster-issuer-ambient-credentials=true
+                - --issuer-ambient-credentials=false
+                - --max-retry-duration=5m
+                - --concurrent-workers=5
+                - --graceful-shutdown-timeout=30s
+                - --health-probe-bind-address=:8081
+                - --metrics-bind-address=:8443
+              env:
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: MEMORY_LIMIT_BYTES
+                  valueFrom:
+                    resourceFieldRef:
+                      containerName: controller
+                      resource: limits.memory
+              image: ghcr.io/mike-guy/azure-keyvault-issuer:0.0.0
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: health
+              name: controller
+              ports:
+                - containerPort: 8081
+                  name: health
+                  protocol: TCP
+                - containerPort: 8443
+                  name: metrics
+                  protocol: TCP
+              readinessProbe:
+                httpGet:
+                  path: /readyz
+                  port: health
+              resources:
+                limits:
+                  memory: 128Mi
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+                runAsGroup: 65532
+                runAsNonRoot: true
+                runAsUser: 65532
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - mountPath: /tmp
+                  name: tmp
+                - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+                  name: kube-api-access
+                  readOnly: true
+          enableServiceLinks: false
+          securityContext:
+            fsGroup: 65532
+            runAsGroup: 65532
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          serviceAccountName: akvi-azure-keyvault-issuer
+          terminationGracePeriodSeconds: 40
+          volumes:
+            - emptyDir:
+                sizeLimit: 16Mi
+              name: tmp
+            - name: kube-api-access
+              projected:
+                defaultMode: 292
+                sources:
+                  - serviceAccountToken:
+                      expirationSeconds: 3607
+                      path: token
+                  - configMap:
+                      items:
+                        - key: ca.crt
+                          path: ca.crt
+                      name: kube-root-ca.crt
+                  - downwardAPI:
+                      items:
+                        - fieldRef:
+                            fieldPath: metadata.namespace
+                          path: namespace
+  7: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-leader-election
+      namespace: cert-manager
+    rules:
+      - apiGroups:
+          - coordination.k8s.io
+        resources:
+          - leases
+        verbs:
+          - get
+          - create
+          - update
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - create
+          - patch
+  8: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-leader-election
+      namespace: cert-manager
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: akvi-azure-keyvault-issuer-leader-election
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  9: |
+    apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics
+      namespace: cert-manager
+    spec:
+      ports:
+        - name: metrics
+          port: 8443
+          protocol: TCP
+          targetPort: metrics
+      selector:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/name: azure-keyvault-issuer
+      type: ClusterIP
+  10: |
+    apiVersion: v1
+    automountServiceAccountToken: false
+    kind: ServiceAccount
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer
+      namespace: cert-manager
+renders with Secret access for the fallback auth methods:
+  1: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-controller
+    rules:
+      - apiGroups:
+          - azure-keyvault-issuer.mike-guy.github.io
+        resources:
+          - azurekeyvaultissuers
+          - azurekeyvaultclusterissuers
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - azure-keyvault-issuer.mike-guy.github.io
+        resources:
+          - azurekeyvaultissuers/status
+          - azurekeyvaultclusterissuers/status
+        verbs:
+          - patch
+      - apiGroups:
+          - cert-manager.io
+        resources:
+          - certificaterequests
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - cert-manager.io
+        resources:
+          - certificaterequests/status
+        verbs:
+          - patch
+      - apiGroups:
+          - events.k8s.io
+        resources:
+          - events
+        verbs:
+          - create
+          - patch
+  2: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    rules:
+      - apiGroups:
+          - authentication.k8s.io
+        resources:
+          - tokenreviews
+        verbs:
+          - create
+      - apiGroups:
+          - authorization.k8s.io
+        resources:
+          - subjectaccessreviews
+        verbs:
+          - create
+  3: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-reader
+    rules:
+      - nonResourceURLs:
+          - /metrics
+        verbs:
+          - get
+  4: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: akvi-azure-keyvault-issuer-controller
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  5: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  6: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer
+      namespace: cert-manager
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/component: controller
+          app.kubernetes.io/instance: akvi
+          app.kubernetes.io/name: azure-keyvault-issuer
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: controller
+            app.kubernetes.io/instance: akvi
+            app.kubernetes.io/name: azure-keyvault-issuer
+        spec:
+          automountServiceAccountToken: false
+          containers:
+            - args:
+                - --log-level=info
+                - --cluster-issuer-ambient-credentials=true
+                - --issuer-ambient-credentials=false
+                - --max-retry-duration=5m
+                - --concurrent-workers=5
+                - --graceful-shutdown-timeout=30s
+                - --health-probe-bind-address=:8081
+                - --metrics-bind-address=:8443
+              env:
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: MEMORY_LIMIT_BYTES
+                  valueFrom:
+                    resourceFieldRef:
+                      containerName: controller
+                      resource: limits.memory
+              image: ghcr.io/mike-guy/azure-keyvault-issuer:0.0.0
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: health
+              name: controller
+              ports:
+                - containerPort: 8081
+                  name: health
+                  protocol: TCP
+                - containerPort: 8443
+                  name: metrics
+                  protocol: TCP
+              readinessProbe:
+                httpGet:
+                  path: /readyz
+                  port: health
+              resources:
+                limits:
+                  memory: 128Mi
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+                runAsGroup: 65532
+                runAsNonRoot: true
+                runAsUser: 65532
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - mountPath: /tmp
+                  name: tmp
+                - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+                  name: kube-api-access
+                  readOnly: true
+          enableServiceLinks: false
+          securityContext:
+            fsGroup: 65532
+            runAsGroup: 65532
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          serviceAccountName: akvi-azure-keyvault-issuer
+          terminationGracePeriodSeconds: 40
+          volumes:
+            - emptyDir:
+                sizeLimit: 16Mi
+              name: tmp
+            - name: kube-api-access
+              projected:
+                defaultMode: 292
+                sources:
+                  - serviceAccountToken:
+                      expirationSeconds: 3607
+                      path: token
+                  - configMap:
+                      items:
+                        - key: ca.crt
+                          path: ca.crt
+                      name: kube-root-ca.crt
+                  - downwardAPI:
+                      items:
+                        - fieldRef:
+                            fieldPath: metadata.namespace
+                          path: namespace
+  7: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-leader-election
+      namespace: cert-manager
+    rules:
+      - apiGroups:
+          - coordination.k8s.io
+        resources:
+          - leases
+        verbs:
+          - get
+          - create
+          - update
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - create
+          - patch
+  8: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-token
+      namespace: team-a
+    rules:
+      - apiGroups:
+          - ""
+        resourceNames:
+          - team-a-issuer
+        resources:
+          - serviceaccounts/token
+        verbs:
+          - create
+  9: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-secrets
+      namespace: cert-manager
+    rules:
+      - apiGroups:
+          - ""
+        resourceNames:
+          - shared-client-cert
+        resources:
+          - secrets
+        verbs:
+          - get
+  10: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-secrets
+      namespace: team-a
+    rules:
+      - apiGroups:
+          - ""
+        resourceNames:
+          - team-a-client-secret
+        resources:
+          - secrets
+        verbs:
+          - get
+  11: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-leader-election
+      namespace: cert-manager
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: akvi-azure-keyvault-issuer-leader-election
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  12: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-token
+      namespace: team-a
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: akvi-azure-keyvault-issuer-token
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  13: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-secrets
+      namespace: cert-manager
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: akvi-azure-keyvault-issuer-secrets
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  14: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-secrets
+      namespace: team-a
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: akvi-azure-keyvault-issuer-secrets
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  15: |
+    apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics
+      namespace: cert-manager
+    spec:
+      ports:
+        - name: metrics
+          port: 8443
+          protocol: TCP
+          targetPort: metrics
+      selector:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/name: azure-keyvault-issuer
+      type: ClusterIP
+  16: |
+    apiVersion: v1
+    automountServiceAccountToken: false
+    kind: ServiceAccount
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer
+      namespace: cert-manager
+renders with a verified metrics certificate and Kubernetes CertificateSigningRequest signing:
+  1: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-controller
+    rules:
+      - apiGroups:
+          - azure-keyvault-issuer.mike-guy.github.io
+        resources:
+          - azurekeyvaultissuers
+          - azurekeyvaultclusterissuers
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - azure-keyvault-issuer.mike-guy.github.io
+        resources:
+          - azurekeyvaultissuers/status
+          - azurekeyvaultclusterissuers/status
+        verbs:
+          - patch
+      - apiGroups:
+          - cert-manager.io
+        resources:
+          - certificaterequests
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - cert-manager.io
+        resources:
+          - certificaterequests/status
+        verbs:
+          - patch
+      - apiGroups:
+          - events.k8s.io
+        resources:
+          - events
+        verbs:
+          - create
+          - patch
+      - apiGroups:
+          - certificates.k8s.io
+        resources:
+          - certificatesigningrequests
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - certificates.k8s.io
+        resources:
+          - certificatesigningrequests/status
+        verbs:
+          - patch
+      - apiGroups:
+          - certificates.k8s.io
+        resourceNames:
+          - azurekeyvaultclusterissuers.azure-keyvault-issuer.mike-guy.github.io/*
+        resources:
+          - signers
+        verbs:
+          - sign
+  2: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    rules:
+      - apiGroups:
+          - authentication.k8s.io
+        resources:
+          - tokenreviews
+        verbs:
+          - create
+      - apiGroups:
+          - authorization.k8s.io
+        resources:
+          - subjectaccessreviews
+        verbs:
+          - create
+  3: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-reader
+    rules:
+      - nonResourceURLs:
+          - /metrics
+        verbs:
+          - get
+  4: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: akvi-azure-keyvault-issuer-controller
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  5: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  6: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer
+      namespace: cert-manager
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/component: controller
+          app.kubernetes.io/instance: akvi
+          app.kubernetes.io/name: azure-keyvault-issuer
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: controller
+            app.kubernetes.io/instance: akvi
+            app.kubernetes.io/name: azure-keyvault-issuer
+        spec:
+          automountServiceAccountToken: false
+          containers:
+            - args:
+                - --log-level=info
+                - --cluster-issuer-ambient-credentials=true
+                - --issuer-ambient-credentials=false
+                - --max-retry-duration=5m
+                - --concurrent-workers=5
+                - --sign-certificatesigningrequests
+                - --graceful-shutdown-timeout=30s
+                - --health-probe-bind-address=:8081
+                - --metrics-bind-address=:8443
+                - --metrics-cert-path=/var/run/secrets/metrics-tls
+              env:
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: MEMORY_LIMIT_BYTES
+                  valueFrom:
+                    resourceFieldRef:
+                      containerName: controller
+                      resource: limits.memory
+              image: ghcr.io/mike-guy/azure-keyvault-issuer:0.0.0
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: health
+              name: controller
+              ports:
+                - containerPort: 8081
+                  name: health
+                  protocol: TCP
+                - containerPort: 8443
+                  name: metrics
+                  protocol: TCP
+              readinessProbe:
+                httpGet:
+                  path: /readyz
+                  port: health
+              resources:
+                limits:
+                  memory: 128Mi
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+                runAsGroup: 65532
+                runAsNonRoot: true
+                runAsUser: 65532
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - mountPath: /tmp
+                  name: tmp
+                - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+                  name: kube-api-access
+                  readOnly: true
+                - mountPath: /var/run/secrets/metrics-tls
+                  name: metrics-tls
+                  readOnly: true
+          enableServiceLinks: false
+          securityContext:
+            fsGroup: 65532
+            runAsGroup: 65532
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          serviceAccountName: akvi-azure-keyvault-issuer
+          terminationGracePeriodSeconds: 40
+          volumes:
+            - emptyDir:
+                sizeLimit: 16Mi
+              name: tmp
+            - name: kube-api-access
+              projected:
+                defaultMode: 292
+                sources:
+                  - serviceAccountToken:
+                      expirationSeconds: 3607
+                      path: token
+                  - configMap:
+                      items:
+                        - key: ca.crt
+                          path: ca.crt
+                      name: kube-root-ca.crt
+                  - downwardAPI:
+                      items:
+                        - fieldRef:
+                            fieldPath: metadata.namespace
+                          path: namespace
+            - name: metrics-tls
+              secret:
+                defaultMode: 288
+                optional: true
+                secretName: akvi-metrics-tls
+  7: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-leader-election
+      namespace: cert-manager
+    rules:
+      - apiGroups:
+          - coordination.k8s.io
+        resources:
+          - leases
+        verbs:
+          - get
+          - create
+          - update
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - create
+          - patch
+  8: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-leader-election
+      namespace: cert-manager
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: akvi-azure-keyvault-issuer-leader-election
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  9: |
+    apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics
+      namespace: cert-manager
+    spec:
+      ports:
+        - name: metrics
+          port: 8443
+          protocol: TCP
+          targetPort: metrics
+      selector:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/name: azure-keyvault-issuer
+      type: ClusterIP
+  10: |
+    apiVersion: v1
+    automountServiceAccountToken: false
+    kind: ServiceAccount
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer
+      namespace: cert-manager
+  11: |
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer
+      namespace: cert-manager
+    spec:
+      endpoints:
+        - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+          interval: 30s
+          port: metrics
+          scheme: https
+          tlsConfig:
+            ca:
+              configMap:
+                key: ca.crt
+                name: akvi-metrics-ca
+            serverName: akvi-azure-keyvault-issuer-metrics.cert-manager.svc
+      selector:
+        matchLabels:
+          app.kubernetes.io/component: controller
+          app.kubernetes.io/instance: akvi
+          app.kubernetes.io/name: azure-keyvault-issuer
+renders with ambient workload identity:
+  1: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-controller
+    rules:
+      - apiGroups:
+          - azure-keyvault-issuer.mike-guy.github.io
+        resources:
+          - azurekeyvaultissuers
+          - azurekeyvaultclusterissuers
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - azure-keyvault-issuer.mike-guy.github.io
+        resources:
+          - azurekeyvaultissuers/status
+          - azurekeyvaultclusterissuers/status
+        verbs:
+          - patch
+      - apiGroups:
+          - cert-manager.io
+        resources:
+          - certificaterequests
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - cert-manager.io
+        resources:
+          - certificaterequests/status
+        verbs:
+          - patch
+      - apiGroups:
+          - events.k8s.io
+        resources:
+          - events
+        verbs:
+          - create
+          - patch
+  2: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    rules:
+      - apiGroups:
+          - authentication.k8s.io
+        resources:
+          - tokenreviews
+        verbs:
+          - create
+      - apiGroups:
+          - authorization.k8s.io
+        resources:
+          - subjectaccessreviews
+        verbs:
+          - create
+  3: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-reader
+    rules:
+      - nonResourceURLs:
+          - /metrics
+        verbs:
+          - get
+  4: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: akvi-azure-keyvault-issuer-controller
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  5: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  6: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer
+      namespace: cert-manager
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/component: controller
+          app.kubernetes.io/instance: akvi
+          app.kubernetes.io/name: azure-keyvault-issuer
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: controller
+            app.kubernetes.io/instance: akvi
+            app.kubernetes.io/name: azure-keyvault-issuer
+        spec:
+          automountServiceAccountToken: false
+          containers:
+            - args:
+                - --log-level=info
+                - --cluster-issuer-ambient-credentials=true
+                - --issuer-ambient-credentials=false
+                - --max-retry-duration=5m
+                - --concurrent-workers=5
+                - --graceful-shutdown-timeout=30s
+                - --health-probe-bind-address=:8081
+                - --metrics-bind-address=:8443
+              env:
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: MEMORY_LIMIT_BYTES
+                  valueFrom:
+                    resourceFieldRef:
+                      containerName: controller
+                      resource: limits.memory
+                - name: AZURE_CLIENT_ID
+                  value: 00000000-0000-0000-0000-000000000001
+                - name: AZURE_TENANT_ID
+                  value: 00000000-0000-0000-0000-000000000002
+                - name: AZURE_FEDERATED_TOKEN_FILE
+                  value: /var/run/secrets/azure/tokens/azure-identity-token
+              image: ghcr.io/mike-guy/azure-keyvault-issuer:0.0.0
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: health
+              name: controller
+              ports:
+                - containerPort: 8081
+                  name: health
+                  protocol: TCP
+                - containerPort: 8443
+                  name: metrics
+                  protocol: TCP
+              readinessProbe:
+                httpGet:
+                  path: /readyz
+                  port: health
+              resources:
+                limits:
+                  memory: 128Mi
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+                runAsGroup: 65532
+                runAsNonRoot: true
+                runAsUser: 65532
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - mountPath: /tmp
+                  name: tmp
+                - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+                  name: kube-api-access
+                  readOnly: true
+                - mountPath: /var/run/secrets/azure/tokens
+                  name: azure-identity-token
+                  readOnly: true
+          enableServiceLinks: false
+          securityContext:
+            fsGroup: 65532
+            runAsGroup: 65532
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          serviceAccountName: akvi-azure-keyvault-issuer
+          terminationGracePeriodSeconds: 40
+          volumes:
+            - emptyDir:
+                sizeLimit: 16Mi
+              name: tmp
+            - name: kube-api-access
+              projected:
+                defaultMode: 292
+                sources:
+                  - serviceAccountToken:
+                      expirationSeconds: 3607
+                      path: token
+                  - configMap:
+                      items:
+                        - key: ca.crt
+                          path: ca.crt
+                      name: kube-root-ca.crt
+                  - downwardAPI:
+                      items:
+                        - fieldRef:
+                            fieldPath: metadata.namespace
+                          path: namespace
+            - name: azure-identity-token
+              projected:
+                defaultMode: 292
+                sources:
+                  - serviceAccountToken:
+                      audience: api://AzureADTokenExchange
+                      expirationSeconds: 3600
+                      path: azure-identity-token
+  7: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-leader-election
+      namespace: cert-manager
+    rules:
+      - apiGroups:
+          - coordination.k8s.io
+        resources:
+          - leases
+        verbs:
+          - get
+          - create
+          - update
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - create
+          - patch
+  8: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-leader-election
+      namespace: cert-manager
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: akvi-azure-keyvault-issuer-leader-election
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  9: |
+    apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics
+      namespace: cert-manager
+    spec:
+      ports:
+        - name: metrics
+          port: 8443
+          protocol: TCP
+          targetPort: metrics
+      selector:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/name: azure-keyvault-issuer
+      type: ClusterIP
+  10: |
+    apiVersion: v1
+    automountServiceAccountToken: false
+    kind: ServiceAccount
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer
+      namespace: cert-manager
+renders with every optional feature:
+  1: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-controller
+    rules:
+      - apiGroups:
+          - azure-keyvault-issuer.mike-guy.github.io
+        resources:
+          - azurekeyvaultissuers
+          - azurekeyvaultclusterissuers
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - azure-keyvault-issuer.mike-guy.github.io
+        resources:
+          - azurekeyvaultissuers/status
+          - azurekeyvaultclusterissuers/status
+        verbs:
+          - patch
+      - apiGroups:
+          - cert-manager.io
+        resources:
+          - certificaterequests
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - cert-manager.io
+        resources:
+          - certificaterequests/status
+        verbs:
+          - patch
+      - apiGroups:
+          - events.k8s.io
+        resources:
+          - events
+        verbs:
+          - create
+          - patch
+  2: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    rules:
+      - apiGroups:
+          - authentication.k8s.io
+        resources:
+          - tokenreviews
+        verbs:
+          - create
+      - apiGroups:
+          - authorization.k8s.io
+        resources:
+          - subjectaccessreviews
+        verbs:
+          - create
+  3: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-reader
+    rules:
+      - nonResourceURLs:
+          - /metrics
+        verbs:
+          - get
+  4: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: akvi-azure-keyvault-issuer-controller
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  5: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  6: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer
+      namespace: cert-manager
+    spec:
+      replicas: 2
+      selector:
+        matchLabels:
+          app.kubernetes.io/component: controller
+          app.kubernetes.io/instance: akvi
+          app.kubernetes.io/name: azure-keyvault-issuer
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: controller
+            app.kubernetes.io/instance: akvi
+            app.kubernetes.io/name: azure-keyvault-issuer
+        spec:
+          automountServiceAccountToken: false
+          containers:
+            - args:
+                - --log-level=info
+                - --cluster-issuer-ambient-credentials=true
+                - --issuer-ambient-credentials=false
+                - --max-retry-duration=5m
+                - --concurrent-workers=5
+                - --graceful-shutdown-timeout=30s
+                - --health-probe-bind-address=:8081
+                - --metrics-bind-address=:8443
+              env:
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: MEMORY_LIMIT_BYTES
+                  valueFrom:
+                    resourceFieldRef:
+                      containerName: controller
+                      resource: limits.memory
+                - name: AZURE_CLIENT_ID
+                  value: 00000000-0000-0000-0000-000000000001
+                - name: AZURE_TENANT_ID
+                  value: 00000000-0000-0000-0000-000000000002
+                - name: AZURE_FEDERATED_TOKEN_FILE
+                  value: /var/run/secrets/azure/tokens/azure-identity-token
+              image: ghcr.io/mike-guy/azure-keyvault-issuer:0.0.0
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: health
+              name: controller
+              ports:
+                - containerPort: 8081
+                  name: health
+                  protocol: TCP
+                - containerPort: 8443
+                  name: metrics
+                  protocol: TCP
+              readinessProbe:
+                httpGet:
+                  path: /readyz
+                  port: health
+              resources:
+                limits:
+                  memory: 128Mi
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+                runAsGroup: 65532
+                runAsNonRoot: true
+                runAsUser: 65532
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - mountPath: /tmp
+                  name: tmp
+                - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+                  name: kube-api-access
+                  readOnly: true
+                - mountPath: /var/run/secrets/azure/tokens
+                  name: azure-identity-token
+                  readOnly: true
+          enableServiceLinks: false
+          securityContext:
+            fsGroup: 65532
+            runAsGroup: 65532
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          serviceAccountName: akvi-azure-keyvault-issuer
+          terminationGracePeriodSeconds: 40
+          volumes:
+            - emptyDir:
+                sizeLimit: 16Mi
+              name: tmp
+            - name: kube-api-access
+              projected:
+                defaultMode: 292
+                sources:
+                  - serviceAccountToken:
+                      expirationSeconds: 3607
+                      path: token
+                  - configMap:
+                      items:
+                        - key: ca.crt
+                          path: ca.crt
+                      name: kube-root-ca.crt
+                  - downwardAPI:
+                      items:
+                        - fieldRef:
+                            fieldPath: metadata.namespace
+                          path: namespace
+            - name: azure-identity-token
+              projected:
+                defaultMode: 292
+                sources:
+                  - serviceAccountToken:
+                      audience: api://AzureADTokenExchange
+                      expirationSeconds: 3600
+                      path: azure-identity-token
+  7: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer
+      namespace: cert-manager
+    spec:
+      egress:
+        - ports:
+            - port: 53
+              protocol: UDP
+            - port: 53
+              protocol: TCP
+        - ports:
+            - port: 443
+              protocol: TCP
+            - port: 6443
+              protocol: TCP
+      ingress:
+        - ports:
+            - port: health
+              protocol: TCP
+            - port: metrics
+              protocol: TCP
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: controller
+          app.kubernetes.io/instance: akvi
+          app.kubernetes.io/name: azure-keyvault-issuer
+      policyTypes:
+        - Ingress
+        - Egress
+  8: |
+    apiVersion: policy/v1
+    kind: PodDisruptionBudget
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer
+      namespace: cert-manager
+    spec:
+      maxUnavailable: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/component: controller
+          app.kubernetes.io/instance: akvi
+          app.kubernetes.io/name: azure-keyvault-issuer
+  9: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-leader-election
+      namespace: cert-manager
+    rules:
+      - apiGroups:
+          - coordination.k8s.io
+        resources:
+          - leases
+        verbs:
+          - get
+          - create
+          - update
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - create
+          - patch
+  10: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-leader-election
+      namespace: cert-manager
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: akvi-azure-keyvault-issuer-leader-election
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  11: |
+    apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics
+      namespace: cert-manager
+    spec:
+      ports:
+        - name: metrics
+          port: 8443
+          protocol: TCP
+          targetPort: metrics
+      selector:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/name: azure-keyvault-issuer
+      type: ClusterIP
+  12: |
+    apiVersion: v1
+    automountServiceAccountToken: false
+    kind: ServiceAccount
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer
+      namespace: cert-manager
+  13: |
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer
+      namespace: cert-manager
+    spec:
+      endpoints:
+        - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+          interval: 30s
+          port: metrics
+          scheme: https
+          tlsConfig:
+            insecureSkipVerify: true
+      selector:
+        matchLabels:
+          app.kubernetes.io/component: controller
+          app.kubernetes.io/instance: akvi
+          app.kubernetes.io/name: azure-keyvault-issuer
+renders with tenant and cluster issuer token access:
+  1: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-controller
+    rules:
+      - apiGroups:
+          - azure-keyvault-issuer.mike-guy.github.io
+        resources:
+          - azurekeyvaultissuers
+          - azurekeyvaultclusterissuers
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - azure-keyvault-issuer.mike-guy.github.io
+        resources:
+          - azurekeyvaultissuers/status
+          - azurekeyvaultclusterissuers/status
+        verbs:
+          - patch
+      - apiGroups:
+          - cert-manager.io
+        resources:
+          - certificaterequests
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - cert-manager.io
+        resources:
+          - certificaterequests/status
+        verbs:
+          - patch
+      - apiGroups:
+          - events.k8s.io
+        resources:
+          - events
+        verbs:
+          - create
+          - patch
+  2: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    rules:
+      - apiGroups:
+          - authentication.k8s.io
+        resources:
+          - tokenreviews
+        verbs:
+          - create
+      - apiGroups:
+          - authorization.k8s.io
+        resources:
+          - subjectaccessreviews
+        verbs:
+          - create
+  3: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-reader
+    rules:
+      - nonResourceURLs:
+          - /metrics
+        verbs:
+          - get
+  4: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: akvi-azure-keyvault-issuer-controller
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  5: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  6: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer
+      namespace: cert-manager
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/component: controller
+          app.kubernetes.io/instance: akvi
+          app.kubernetes.io/name: azure-keyvault-issuer
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: controller
+            app.kubernetes.io/instance: akvi
+            app.kubernetes.io/name: azure-keyvault-issuer
+        spec:
+          automountServiceAccountToken: false
+          containers:
+            - args:
+                - --log-level=info
+                - --cluster-issuer-ambient-credentials=true
+                - --issuer-ambient-credentials=false
+                - --issuer-allowed-vaults=https://my-ca.vault.azure.net
+                - --max-retry-duration=5m
+                - --concurrent-workers=5
+                - --graceful-shutdown-timeout=30s
+                - --health-probe-bind-address=:8081
+                - --metrics-bind-address=:8443
+              env:
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: MEMORY_LIMIT_BYTES
+                  valueFrom:
+                    resourceFieldRef:
+                      containerName: controller
+                      resource: limits.memory
+              image: ghcr.io/mike-guy/azure-keyvault-issuer:0.0.0
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: health
+              name: controller
+              ports:
+                - containerPort: 8081
+                  name: health
+                  protocol: TCP
+                - containerPort: 8443
+                  name: metrics
+                  protocol: TCP
+              readinessProbe:
+                httpGet:
+                  path: /readyz
+                  port: health
+              resources:
+                limits:
+                  memory: 128Mi
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+                runAsGroup: 65532
+                runAsNonRoot: true
+                runAsUser: 65532
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - mountPath: /tmp
+                  name: tmp
+                - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+                  name: kube-api-access
+                  readOnly: true
+          enableServiceLinks: false
+          securityContext:
+            fsGroup: 65532
+            runAsGroup: 65532
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          serviceAccountName: akvi-azure-keyvault-issuer
+          terminationGracePeriodSeconds: 40
+          volumes:
+            - emptyDir:
+                sizeLimit: 16Mi
+              name: tmp
+            - name: kube-api-access
+              projected:
+                defaultMode: 292
+                sources:
+                  - serviceAccountToken:
+                      expirationSeconds: 3607
+                      path: token
+                  - configMap:
+                      items:
+                        - key: ca.crt
+                          path: ca.crt
+                      name: kube-root-ca.crt
+                  - downwardAPI:
+                      items:
+                        - fieldRef:
+                            fieldPath: metadata.namespace
+                          path: namespace
+  7: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-leader-election
+      namespace: cert-manager
+    rules:
+      - apiGroups:
+          - coordination.k8s.io
+        resources:
+          - leases
+        verbs:
+          - get
+          - create
+          - update
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - create
+          - patch
+  8: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-token
+      namespace: cert-manager
+    rules:
+      - apiGroups:
+          - ""
+        resourceNames:
+          - shared-issuer
+        resources:
+          - serviceaccounts/token
+        verbs:
+          - create
+  9: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-token
+      namespace: team-a
+    rules:
+      - apiGroups:
+          - ""
+        resourceNames:
+          - team-a-issuer
+        resources:
+          - serviceaccounts/token
+        verbs:
+          - create
+  10: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-leader-election
+      namespace: cert-manager
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: akvi-azure-keyvault-issuer-leader-election
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  11: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-token
+      namespace: cert-manager
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: akvi-azure-keyvault-issuer-token
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  12: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-token
+      namespace: team-a
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: akvi-azure-keyvault-issuer-token
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  13: |
+    apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics
+      namespace: cert-manager
+    spec:
+      ports:
+        - name: metrics
+          port: 8443
+          protocol: TCP
+          targetPort: metrics
+      selector:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/name: azure-keyvault-issuer
+      type: ClusterIP
+  14: |
+    apiVersion: v1
+    automountServiceAccountToken: false
+    kind: ServiceAccount
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer
+      namespace: cert-manager
+renders with the AKS webhook:
+  1: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-controller
+    rules:
+      - apiGroups:
+          - azure-keyvault-issuer.mike-guy.github.io
+        resources:
+          - azurekeyvaultissuers
+          - azurekeyvaultclusterissuers
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - azure-keyvault-issuer.mike-guy.github.io
+        resources:
+          - azurekeyvaultissuers/status
+          - azurekeyvaultclusterissuers/status
+        verbs:
+          - patch
+      - apiGroups:
+          - cert-manager.io
+        resources:
+          - certificaterequests
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - cert-manager.io
+        resources:
+          - certificaterequests/status
+        verbs:
+          - patch
+      - apiGroups:
+          - events.k8s.io
+        resources:
+          - events
+        verbs:
+          - create
+          - patch
+  2: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    rules:
+      - apiGroups:
+          - authentication.k8s.io
+        resources:
+          - tokenreviews
+        verbs:
+          - create
+      - apiGroups:
+          - authorization.k8s.io
+        resources:
+          - subjectaccessreviews
+        verbs:
+          - create
+  3: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-reader
+    rules:
+      - nonResourceURLs:
+          - /metrics
+        verbs:
+          - get
+  4: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: akvi-azure-keyvault-issuer-controller
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  5: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: akvi-azure-keyvault-issuer-metrics-auth
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  6: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer
+      namespace: cert-manager
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/component: controller
+          app.kubernetes.io/instance: akvi
+          app.kubernetes.io/name: azure-keyvault-issuer
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/component: controller
+            app.kubernetes.io/instance: akvi
+            app.kubernetes.io/name: azure-keyvault-issuer
+            azure.workload.identity/use: "true"
+        spec:
+          automountServiceAccountToken: false
+          containers:
+            - args:
+                - --log-level=info
+                - --cluster-issuer-ambient-credentials=true
+                - --issuer-ambient-credentials=false
+                - --max-retry-duration=5m
+                - --concurrent-workers=5
+                - --graceful-shutdown-timeout=30s
+                - --health-probe-bind-address=:8081
+                - --metrics-bind-address=:8443
+              env:
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: MEMORY_LIMIT_BYTES
+                  valueFrom:
+                    resourceFieldRef:
+                      containerName: controller
+                      resource: limits.memory
+              image: ghcr.io/mike-guy/azure-keyvault-issuer:0.0.0
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: health
+              name: controller
+              ports:
+                - containerPort: 8081
+                  name: health
+                  protocol: TCP
+                - containerPort: 8443
+                  name: metrics
+                  protocol: TCP
+              readinessProbe:
+                httpGet:
+                  path: /readyz
+                  port: health
+              resources:
+                limits:
+                  memory: 128Mi
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+                runAsGroup: 65532
+                runAsNonRoot: true
+                runAsUser: 65532
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - mountPath: /tmp
+                  name: tmp
+                - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+                  name: kube-api-access
+                  readOnly: true
+          enableServiceLinks: false
+          securityContext:
+            fsGroup: 65532
+            runAsGroup: 65532
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          serviceAccountName: akvi-azure-keyvault-issuer
+          terminationGracePeriodSeconds: 40
+          volumes:
+            - emptyDir:
+                sizeLimit: 16Mi
+              name: tmp
+            - name: kube-api-access
+              projected:
+                defaultMode: 292
+                sources:
+                  - serviceAccountToken:
+                      expirationSeconds: 3607
+                      path: token
+                  - configMap:
+                      items:
+                        - key: ca.crt
+                          path: ca.crt
+                      name: kube-root-ca.crt
+                  - downwardAPI:
+                      items:
+                        - fieldRef:
+                            fieldPath: metadata.namespace
+                          path: namespace
+  7: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-leader-election
+      namespace: cert-manager
+    rules:
+      - apiGroups:
+          - coordination.k8s.io
+        resources:
+          - leases
+        verbs:
+          - get
+          - create
+          - update
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - create
+          - patch
+  8: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-leader-election
+      namespace: cert-manager
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: akvi-azure-keyvault-issuer-leader-election
+    subjects:
+      - kind: ServiceAccount
+        name: akvi-azure-keyvault-issuer
+        namespace: cert-manager
+  9: |
+    apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer-metrics
+      namespace: cert-manager
+    spec:
+      ports:
+        - name: metrics
+          port: 8443
+          protocol: TCP
+          targetPort: metrics
+      selector:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/name: azure-keyvault-issuer
+      type: ClusterIP
+  10: |
+    apiVersion: v1
+    automountServiceAccountToken: false
+    kind: ServiceAccount
+    metadata:
+      annotations:
+        azure.workload.identity/client-id: 00000000-0000-0000-0000-000000000001
+        azure.workload.identity/tenant-id: 00000000-0000-0000-0000-000000000002
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/instance: akvi
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: azure-keyvault-issuer
+        app.kubernetes.io/version: 0.0.0
+        helm.sh/chart: azure-keyvault-issuer-0.0.0
+      name: akvi-azure-keyvault-issuer
+      namespace: cert-manager

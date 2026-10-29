@@ -1,0 +1,79 @@
+suite: render snapshots
+templates:
+  - templates/deployment.yaml
+  - templates/serviceaccount.yaml
+  - templates/service.yaml
+  - templates/role.yaml
+  - templates/rolebinding.yaml
+  - templates/clusterrole.yaml
+  - templates/clusterrolebinding.yaml
+  - templates/networkpolicy.yaml
+  - templates/poddisruptionbudget.yaml
+  - templates/servicemonitor.yaml
+release:
+  name: akvi
+  namespace: cert-manager
+# The labels carry the chart's version and appVersion. Fixed here, so the
+# snapshots do not change with each chart release.
+chart:
+  version: 0.0.0
+  appVersion: 0.0.0
+tests:
+  - it: renders the defaults
+    asserts:
+      - matchSnapshot: {}
+
+  - it: renders with ambient workload identity
+    set:
+      workloadIdentity.clientID: 00000000-0000-0000-0000-000000000001
+      workloadIdentity.tenantID: 00000000-0000-0000-0000-000000000002
+    asserts:
+      - matchSnapshot: {}
+
+  - it: renders with the AKS webhook
+    set:
+      workloadIdentity.clientID: 00000000-0000-0000-0000-000000000001
+      workloadIdentity.tenantID: 00000000-0000-0000-0000-000000000002
+      workloadIdentity.useWebhook: true
+    asserts:
+      - matchSnapshot: {}
+
+  - it: renders with tenant and cluster issuer token access
+    set:
+      controller.allowedVaults: [https://my-ca.vault.azure.net]
+      clusterIssuer.serviceAccounts: [shared-issuer]
+      tenantAccess:
+        - namespace: team-a
+          serviceAccounts: [team-a-issuer]
+    asserts:
+      - matchSnapshot: {}
+
+  - it: renders with Secret access for the fallback auth methods
+    set:
+      clusterIssuer.secrets: [shared-client-cert]
+      tenantAccess:
+        - namespace: team-a
+          serviceAccounts: [team-a-issuer]
+          secrets: [team-a-client-secret]
+    asserts:
+      - matchSnapshot: {}
+
+  - it: renders with every optional feature
+    set:
+      replicaCount: 2
+      workloadIdentity.clientID: 00000000-0000-0000-0000-000000000001
+      workloadIdentity.tenantID: 00000000-0000-0000-0000-000000000002
+      metrics.serviceMonitor.enabled: true
+      networkPolicy.enabled: true
+      podDisruptionBudget.enabled: true
+    asserts:
+      - matchSnapshot: {}
+
+  - it: renders with a verified metrics certificate and Kubernetes CertificateSigningRequest signing
+    set:
+      controller.signCertificateSigningRequests: true
+      metrics.tls.secretName: akvi-metrics-tls
+      metrics.serviceMonitor.enabled: true
+      metrics.serviceMonitor.caConfigMap.name: akvi-metrics-ca
+    asserts:
+      - matchSnapshot: {}

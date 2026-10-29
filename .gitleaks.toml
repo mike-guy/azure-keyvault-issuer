@@ -1,0 +1,14 @@
+# gitleaks settings, read by 'make secrets' and the pre-commit hook. The default
+# rules apply. 'gitleaks dir' also reads git-ignored files, so the scratch
+# directories that hold real keys by design (an e2e run's throwaway test PKI
+# and kubeconfig, build output) are left out: git never commits them.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Git-ignored scratch and build output"
+paths = [
+  '''(^|/)test/e2e/\.work/''',
+  '''(^|/)dist/''',
+  '''(^|/)bin/''',
+]

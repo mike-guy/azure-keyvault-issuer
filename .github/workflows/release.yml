@@ -1,0 +1,396 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      component:
+        description: What to release. The chart is also released by itself when a new version in its Chart.yaml reaches main.
+        type: choice
+        options: [app, chart]
+        default: app
+      version:
+        description: The controller only. Version to release, such as v0.1.0. Leave empty to work it out from the commits. Name the version of a release that failed after its tag was pushed to retry it.
+        type: string
+        required: false
+      dry_run:
+        description: Build and package, but tag, push, sign and release nothing.
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - charts/azure-keyvault-issuer/Chart.yaml
+
+permissions: {}
+
+env:
+  # Adds mise.ci.toml's tools (the GitHub CLI and cosign) to mise.toml's.
+  MISE_ENV: ci
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      component: ${{ steps.decide.outputs.component }}
+      release: ${{ steps.decide.outputs.release }}
+      version: ${{ steps.decide.outputs.version }}
+      tag: ${{ steps.decide.outputs.tag }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Go lists the packages the controller is built from, which decide
+      # whether it has changed.
+      - name: Setup Tools
+        uses: ./.github/actions/setup-tools # zizmor: ignore[self-repository]
+        with:
+          cache: false
+
+      # A push to main considered chart only. App releases are manual.
+      - name: Decide What To Release
+        id: decide
+        env:
+          COMPONENT: ${{ inputs.component || 'chart' }}
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          decision="$RUNNER_TEMP/decision"
+          make -s release-versions COMPONENT="$COMPONENT" REQUESTED="$REQUESTED" > "$decision"
+          cat "$decision" >> "$GITHUB_OUTPUT"
+          echo "component=$COMPONENT" >> "$GITHUB_OUTPUT"
+          release=$(sed -n 's/^release=//p' "$decision")
+          version=$(sed -n 's/^version=//p' "$decision")
+          if [ "$COMPONENT" = app ]; then
+            echo "tag=$version" >> "$GITHUB_OUTPUT"
+            current=$(sed -n 's/^current=//p' "$decision")
+            if [ "$release" = true ]; then
+              echo "Releasing the controller **$version** (the latest is $current)." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "No controller release: no commit since $current changed the controller." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            app=$(sed -n 's/^app_version=//p' "$decision")
+            if [ "$release" = true ]; then
+              echo "Releasing the chart **chart-v$version**, which runs the controller v$app." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "No chart release: chart-v$version is already released, or is the 0.0.0 placeholder. Raise the version in Chart.yaml to release the chart." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+  app:
+    needs: version
+    if: needs.version.outputs.component == 'app' && needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write # push the release tag, and create the draft GitHub release
+      packages: write # push the image to GHCR
+      id-token: write # sign keylessly, and sign the build provenance
+      attestations: write # store the build provenance and the SBOM
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      # GoReleaser takes the version from this, never from a chart-v tag that
+      # may be on the same commit.
+      GORELEASER_CURRENT_TAG: ${{ needs.version.outputs.version }}
+      DRY_RUN: ${{ inputs.dry_run || false }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # No caches in the release jobs (Go or mise), so nothing from another run
+      # can reach a published build.
+      - name: Setup Tools
+        uses: ./.github/actions/setup-tools # zizmor: ignore[self-repository]
+        with:
+          cache: false
+
+      - name: Tag Release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: make release-tag TAG="$VERSION"
+
+      # ko and cosign read the Docker credentials.
+      - name: Log In To GHCR
+        if: env.DRY_RUN != 'true'
+        env:
+          ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+
+      # Builds the image, pushes it, and creates the GitHub release as a draft
+      # with the CRDs. A dry run builds the image into the runner's Docker
+      # daemon and publishes nothing, as 'make snapshot' does.
+      - name: Build And Push Image
+        id: image
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$DRY_RUN" = true ]; then
+            make snapshot
+          else
+            make release-publish
+          fi
+          echo "name=$(cat dist/image-repo)" >> "$GITHUB_OUTPUT"
+          echo "digest=$(cat dist/image-digest)" >> "$GITHUB_OUTPUT"
+
+      - name: Write SBOM
+        if: env.DRY_RUN != 'true'
+        run: make release-sbom
+
+      - name: Attest Image Provenance
+        if: env.DRY_RUN != 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest Image SBOM
+        if: env.DRY_RUN != 'true'
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          sbom-path: dist/image.spdx.json
+          push-to-registry: true
+
+      # The CRDs are attached to the release for installing apart from the
+      # chart, and are cluster-wide, so they carry provenance too.
+      - name: Attest CRDs
+        if: env.DRY_RUN != 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: deploy/crds/*.yaml
+
+      # Keyless: cosign takes the job's OIDC token, Fulcio certifies a one-off
+      # key for this workflow's identity, and Rekor logs the signature.
+      - name: Sign Image
+        if: env.DRY_RUN != 'true'
+        run: make release-sign ARTEFACTS=image
+
+      - name: Verify Signature And Attestations
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          make release-verify ARTEFACTS=image
+          image="oci://$(cat dist/image-repo)@$(cat dist/image-digest)"
+          gh attestation verify "$image" --repo "$GITHUB_REPOSITORY"
+          gh attestation verify "$image" --repo "$GITHUB_REPOSITORY" --predicate-type https://spdx.dev/Document/v2.3
+          for file in deploy/crds/*.yaml; do
+            gh attestation verify "$file" --repo "$GITHUB_REPOSITORY"
+          done
+
+      # Last, once everything is signed and verified. The release stays a
+      # draft: the maintainer writes a summary into it and publishes it.
+      - name: Write Draft Release Notes
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          make release-notes VERSION="$VERSION"
+          make release-draft TAG="$VERSION"
+          {
+            echo "The draft release **$VERSION** is ready: write a summary at the top, then publish it."
+            echo
+            echo "A pull request that points the chart at it is opened next. Merge it to release the chart."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Dry Run Artifacts
+        if: env.DRY_RUN == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dry-run-app
+          path: |
+            dist/CHANGELOG.md
+            dist/image-digest
+          retention-days: 7
+
+  chart-pr:
+    needs: [version, app]
+    if: inputs.dry_run != true && needs.app.result == 'success'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Tools
+        uses: ./.github/actions/setup-tools # zizmor: ignore[self-repository]
+        with:
+          cache: false
+
+      - name: Create App Token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_PR_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: azure-keyvault-issuer
+          permission-contents: write # push the branch
+          permission-pull-requests: write # open the pull request
+
+      # The chart's version goes up by the same step as the controller's, which
+      # the maintainer may change in the pull request.
+      - name: Update Chart.yaml
+        id: bump
+        run: |
+          make -s release-chart-bump VERSION="$VERSION" >> "$GITHUB_OUTPUT"
+          make helm-docs
+
+      - name: Open Pull Request
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          CHART_VERSION: ${{ steps.bump.outputs.version }}
+          PREVIOUS_VERSION: ${{ steps.bump.outputs.previous_version }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          branch="chart/controller-$VERSION"
+          title="feat(chart): run the controller $VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --create "$branch"
+          git add charts
+          git commit --message "$title"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git" "$branch"
+          if [ -n "$(gh pr list --repo "$REPOSITORY" --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            echo "The pull request for $branch is open already, and now holds this commit." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          body="$(cat <<EOF
+          Points the chart at the controller release $VERSION, and raises the chart from $PREVIOUS_VERSION to $CHART_VERSION by the same step.
+
+          Before merging:
+          - Publish the draft release $VERSION, with a summary at the top.
+          - Change the chart version here if the chart deserves a different bump.
+
+          Merging releases the chart as chart-v$CHART_VERSION. It runs the image of $VERSION by its digest, and the release checks that the workflow signed that image.
+          EOF
+          )"
+          url="$(gh pr create --repo "$REPOSITORY" --head "$branch" --base main --title "$title" --body "$body")"
+          echo "Opened $url" >> "$GITHUB_STEP_SUMMARY"
+
+  chart:
+    needs: version
+    if: needs.version.outputs.component == 'chart' && needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write # push the release tag, and create the draft GitHub release
+      packages: write # push the chart to GHCR
+      id-token: write # sign keylessly, and sign the build provenance
+      attestations: write # store the build provenance
+    env:
+      CHART_TAG: ${{ needs.version.outputs.tag }}
+      DRY_RUN: ${{ inputs.dry_run || false }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Mise installs every tool in mise.toml, and some are built with Go.
+      - name: Setup Tools
+        uses: ./.github/actions/setup-tools # zizmor: ignore[self-repository]
+        with:
+          cache: false
+
+      - name: Log In To GHCR
+        env:
+          ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+          printf '%s' "$GITHUB_TOKEN" | mise exec -- helm registry login ghcr.io --username "$ACTOR" --password-stdin
+
+      # The image of the controller release in appVersion, by digest, and only
+      # if this workflow signed it.
+      - name: Find The Image
+        run: make release-resolve-image
+
+      # The chart runs that image by digest. A dry run packages it, which
+      # checks that substitution, and pushes nothing.
+      - name: Package And Push Chart
+        id: chart
+        run: |
+          make chart-package
+          if [ "$DRY_RUN" != true ]; then
+            make chart-push
+            echo "name=$(cat dist/chart-ref)" >> "$GITHUB_OUTPUT"
+            echo "digest=$(cat dist/chart-digest)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Attest Chart Provenance
+        if: env.DRY_RUN != 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.chart.outputs.name }}
+          subject-digest: ${{ steps.chart.outputs.digest }}
+          push-to-registry: true
+
+      - name: Sign Chart
+        if: env.DRY_RUN != 'true'
+        run: make release-sign ARTEFACTS=chart
+
+      - name: Verify Signature And Attestation
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          make release-verify ARTEFACTS=chart
+          gh attestation verify "oci://$(cat dist/chart-ref)@$(cat dist/chart-digest)" --repo "$GITHUB_REPOSITORY"
+
+      # The tag comes only once everything is signed and verified: a chart
+      # that fails before this has no tag, so a re-run releases it. The draft
+      # needs the tag, and the chart has none of its own build to need it sooner.
+      - name: Tag Release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: make release-tag TAG="$CHART_TAG"
+
+      # The release is created as a draft: the maintainer may write a summary
+      # into it, and publishes it without making it the latest release, which
+      # stays the controller's.
+      - name: Write Draft Release Notes
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          make release-chart-notes
+          make release-draft TAG="$CHART_TAG"
+          {
+            echo "The draft release **$CHART_TAG** is ready. Publish it without making it the latest release, which stays the controller's:"
+            echo
+            echo "\`gh release edit $CHART_TAG --draft=false --latest=false\` (or untick \"Set as the latest release\" on GitHub)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Dry Run Artifacts
+        if: env.DRY_RUN == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dry-run-chart
+          path: |
+            dist/*.tgz
+            dist/image-digest
+          retention-days: 7

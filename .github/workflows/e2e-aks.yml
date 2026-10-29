@@ -1,0 +1,29 @@
+name: e2e aks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  schedule:
+    - cron: "17 3 * * 1" # Mondays, 03:17 UTC, alongside kind.
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  aks:
+    # On a pull request: when the label is added, or on a push while it is
+    # there, but not when some other label is added. Forks get no OIDC token,
+    # so they cannot sign in to Azure and skip the job.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.action == 'labeled' && github.event.label.name == 'e2e-aks' ||
+      github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'e2e-aks')))
+    # A reusable workflow is loaded from the triggering commit before any step
+    # runs, so nothing can change it on disk; actionlint lacks the $/ form.
+    uses: ./.github/workflows/e2e-run.yml # zizmor: ignore[self-repository]
+    with:
+      cluster: aks
+    permissions:
+      contents: read
+      id-token: write # Signs in to Azure with the job's OIDC token.

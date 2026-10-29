@@ -1,0 +1,28 @@
+apiVersion: v2
+name: azure-keyvault-issuer
+description: A cert-manager external issuer that signs certificates with a CA key held in Azure Key Vault
+type: application
+# The chart is released on its own, separately from the controller. Raising
+# version releases the chart as chart-v<version> once the change reaches main;
+# appVersion is the controller release it runs, by that image's digest (see
+# CONTRIBUTING.md). Run 'make helm-docs' after changing either. 0.0.0 means
+# never released.
+version: 0.0.0
+# The release workflow opens a pull request that sets this after a controller
+# release. Renovate opens one three days after the release is published, in case
+# that was not merged.
+# renovate: datasource=github-releases depName=mike-guy/azure-keyvault-issuer
+appVersion: 0.0.0
+kubeVersion: ">=1.30.0-0"
+home: https://github.com/mike-guy/azure-keyvault-issuer
+sources:
+  - https://github.com/mike-guy/azure-keyvault-issuer
+keywords:
+  - cert-manager
+  - issuer
+  - azure
+  - key-vault
+  - pki
+maintainers:
+  - name: Mike Guy
+    url: https://github.com/mike-guy

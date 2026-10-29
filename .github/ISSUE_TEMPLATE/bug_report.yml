@@ -1,0 +1,73 @@
+name: Bug report
+description: Something azure-keyvault-issuer does wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Please don't include
+        subscription IDs, tenant IDs, vault names you consider private or
+        credentials. Replace IDs with `00000000-0000-0000-0000-000000000000`.
+
+        To report a security vulnerability, please use
+        [private vulnerability reporting](https://github.com/mike-guy/azure-keyvault-issuer/security/advisories/new)
+        instead of an issue.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The chart and image version
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: cert-manager
+    attributes:
+      label: cert-manager version
+    validations:
+      required: true
+  - type: dropdown
+    id: cluster
+    attributes:
+      label: Kubernetes distribution
+      options:
+        - AKS
+        - Another managed cloud (EKS, GKE and so on)
+        - On-premises
+        - kind or another local cluster
+    validations:
+      required: true
+  - type: dropdown
+    id: auth
+    attributes:
+      label: Authentication method
+      options:
+        - Workload identity, ServiceAccount reference
+        - Ambient workload identity
+        - Client certificate
+        - Client secret
+    validations:
+      required: true
+  - type: textarea
+    id: manifests
+    attributes:
+      label: Issuer and Certificate manifests
+      description: The issuer, and the Certificate or CertificateRequest, with identifiers removed
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: |
+        Include the issuer's status conditions and the relevant controller logs.
+      render: text
+    validations:
+      required: true

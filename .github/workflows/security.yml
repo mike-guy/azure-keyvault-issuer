@@ -1,0 +1,117 @@
+name: security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1" # Mondays, 06:00 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  # Each job installs only the tools it runs (.github/actions/setup-tools), and
+  # mise exec must not fetch the rest.
+  MISE_EXEC_AUTO_INSTALL: "false"
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Tools
+        uses: ./.github/actions/setup-tools # zizmor: ignore[self-repository]
+        with:
+          tools: aqua:gitleaks/gitleaks
+      - name: Scan For Secrets
+        run: make secrets
+
+  govulncheck:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Tools
+        uses: ./.github/actions/setup-tools # zizmor: ignore[self-repository]
+        with:
+          tools: go:golang.org/x/vuln/cmd/govulncheck
+      - name: Check For Vulnerabilities
+        run: make vuln
+
+  trivy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Tools
+        uses: ./.github/actions/setup-tools # zizmor: ignore[self-repository]
+        with:
+          tools: aqua:aquasecurity/trivy aqua:helm/helm aqua:ko-build/ko
+      # Trivy's vulnerability database, refreshed daily.
+      - name: Get Date
+        id: date
+        run: echo "today=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+      - name: Cache Trivy Database
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ steps.date.outputs.today }}
+          restore-keys: trivy-db-
+      # The HIGH and CRITICAL findings (settings in trivy.yaml), as SARIF for
+      # the Security tab. The step fails on any finding; the upload still runs.
+      - name: Scan Repository
+        run: mise exec -- trivy fs --format sarif --output trivy.sarif .
+      - name: Upload Results To Code Scanning
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        if: always()
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
+      # The rendered chart, with every ci profile, and the image it runs.
+      - name: Scan Chart And Image
+        run: make trivy-chart trivy-image
+
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Initialise CodeQL
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          languages: go
+          build-mode: autobuild
+          queries: security-and-quality
+      - name: Analyse With CodeQL
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          category: codeql

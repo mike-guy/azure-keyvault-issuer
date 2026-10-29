@@ -1,0 +1,26 @@
+name: e2e
+
+# Runs the end-to-end tests on kind against real Azure KV, for
+# every pull request and weekly. This is the check to make required. AKS runs
+# separately, from e2e-aks.yml.
+on:
+  pull_request:
+  schedule:
+    - cron: "17 3 * * 1" # Mondays, 03:17 UTC.
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  kind:
+    # Pull requests from forks get no OIDC token, so they cannot sign in to
+    # Azure and skip the job.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # A reusable workflow is loaded from the triggering commit before any step
+    # runs, so nothing can change it on disk; actionlint lacks the $/ form.
+    uses: ./.github/workflows/e2e-run.yml # zizmor: ignore[self-repository]
+    with:
+      cluster: kind
+    permissions:
+      contents: read
+      id-token: write # Signs in to Azure with the job's OIDC token.

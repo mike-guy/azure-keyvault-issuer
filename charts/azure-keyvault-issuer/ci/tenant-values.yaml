@@ -1,0 +1,15 @@
+# Token and Secret access for ClusterIssuers and for one tenant namespace.
+controller:
+  allowedVaults:
+    - https://my-ca.vault.azure.net
+clusterIssuer:
+  serviceAccounts:
+    - shared-issuer
+  secrets:
+    - shared-client-cert
+tenantAccess:
+  - namespace: akvi-ct
+    serviceAccounts:
+      - team-a-issuer
+    secrets:
+      - team-a-client-secret

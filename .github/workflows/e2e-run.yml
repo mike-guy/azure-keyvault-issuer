@@ -1,0 +1,61 @@
+name: e2e run
+
+# Called by e2e.yml (kind) and e2e-aks.yml (AKS). The run creates its own Key Vault,
+# identities and cluster with Terraform and destroys them afterwards, so
+# nothing is shared between runs. The cleanup workflow cleans up after any run
+# whose runner died before it could.
+
+on:
+  workflow_call:
+    inputs:
+      cluster:
+        description: The cluster to test on, kind or aks.
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: e2e-${{ inputs.cluster }}-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    environment: e2e
+    permissions:
+      contents: read
+      id-token: write # Signs in to Azure with the job's OIDC token.
+    env:
+      RUN_ID: ci-${{ inputs.cluster }}-${{ github.run_id }}-${{ github.run_attempt }}
+      CLUSTER: ${{ inputs.cluster }}
+      ARM_USE_OIDC: "true"
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      OIDC_STORAGE_ACCOUNT: ${{ vars.OIDC_STORAGE_ACCOUNT }}
+      OIDC_SITE_URL: ${{ vars.OIDC_SITE_URL }}
+      TFSTATE_RESOURCE_GROUP: ${{ vars.TFSTATE_RESOURCE_GROUP }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ vars.TFSTATE_STORAGE_ACCOUNT }}
+      TFSTATE_CONTAINER: ${{ vars.TFSTATE_CONTAINER }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Tools
+        uses: ./.github/actions/setup-tools # zizmor: ignore[self-repository]
+      - name: Sign In To Azure
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Create Infrastructure And Cluster
+        run: make e2e-up
+      - name: Run End-To-End Tests
+        run: make test-e2e
+      - name: Delete Cluster And Infrastructure
+        if: always()
+        run: make e2e-down
