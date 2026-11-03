@@ -1,0 +1,47 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "akvi.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akvi.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "akvi.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Probes and metrics only. Metrics callers must also pass Kubernetes
+    # authentication and authorisation.
+    - ports:
+        - port: health
+          protocol: TCP
+        {{- if .Values.metrics.enabled }}
+        - port: metrics
+          protocol: TCP
+        {{- end }}
+      {{- with .Values.networkPolicy.ingressFrom }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  egress:
+    # DNS.
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Key Vault, Entra and the Kubernetes API server.
+    - ports:
+        {{- range .Values.networkPolicy.egressPorts }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+      {{- with .Values.networkPolicy.egressTo }}
+      to:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

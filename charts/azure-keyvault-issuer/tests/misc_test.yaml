@@ -1,0 +1,162 @@
+suite: optional resources
+templates:
+  - templates/networkpolicy.yaml
+  - templates/poddisruptionbudget.yaml
+  - templates/servicemonitor.yaml
+  - templates/service.yaml
+  - templates/crds.yaml
+release:
+  name: akvi
+  namespace: cert-manager
+tests:
+  - it: creates the metrics Service only
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: templates/service.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/networkpolicy.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/poddisruptionbudget.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/servicemonitor.yaml
+
+  - it: creates a PodDisruptionBudget only with more than one replica
+    set:
+      replicaCount: 2
+    asserts:
+      - equal:
+          path: spec.maxUnavailable
+          value: 1
+        template: templates/poddisruptionbudget.yaml
+
+  - it: allows probes, metrics, DNS, HTTPS and the API server only
+    set:
+      networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    asserts:
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress, Egress]
+      - equal:
+          path: spec.ingress
+          value:
+            - ports:
+                - port: health
+                  protocol: TCP
+                - port: metrics
+                  protocol: TCP
+      - equal:
+          path: spec.egress
+          value:
+            - ports:
+                - port: 53
+                  protocol: UDP
+                - port: 53
+                  protocol: TCP
+            - ports:
+                - port: 443
+                  protocol: TCP
+                - port: 6443
+                  protocol: TCP
+
+  - it: limits egress and ingress to the given peers
+    set:
+      networkPolicy:
+        enabled: true
+        ingressFrom:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: monitoring
+        egressTo:
+          - ipBlock:
+              cidr: 10.0.0.0/8
+    template: templates/networkpolicy.yaml
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].namespaceSelector.matchLabels
+          value:
+            kubernetes.io/metadata.name: monitoring
+      - equal:
+          path: spec.egress[1].to[0].ipBlock.cidr
+          value: 10.0.0.0/8
+
+  - it: scrapes the secure metrics with the Prometheus token
+    set:
+      metrics.serviceMonitor.enabled: true
+    template: templates/servicemonitor.yaml
+    asserts:
+      - equal:
+          path: spec.endpoints[0].scheme
+          value: https
+      - equal:
+          path: spec.endpoints[0].bearerTokenFile
+          value: /var/run/secrets/kubernetes.io/serviceaccount/token
+      - equal:
+          path: spec.endpoints[0].tlsConfig
+          value:
+            insecureSkipVerify: true
+
+  - it: verifies the metrics certificate against the CA ConfigMap when one is given
+    set:
+      metrics.serviceMonitor.enabled: true
+      metrics.tls.secretName: akvi-metrics-tls
+      metrics.serviceMonitor.caConfigMap.name: akvi-metrics-ca
+    template: templates/servicemonitor.yaml
+    asserts:
+      - equal:
+          path: spec.endpoints[0].tlsConfig
+          value:
+            serverName: akvi-azure-keyvault-issuer-metrics.cert-manager.svc
+            ca:
+              configMap:
+                name: akvi-metrics-ca
+                key: ca.crt
+
+  - it: refuses a CA ConfigMap without a metrics certificate, which could never verify
+    set:
+      metrics.serviceMonitor.enabled: true
+      metrics.serviceMonitor.caConfigMap.name: akvi-metrics-ca
+    template: templates/servicemonitor.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: caConfigMap needs metrics.tls.secretName
+
+  - it: refuses a metrics certificate the ServiceMonitor would not verify
+    set:
+      metrics.serviceMonitor.enabled: true
+      metrics.tls.secretName: akvi-metrics-tls
+    template: templates/servicemonitor.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: metrics.tls.secretName needs metrics.serviceMonitor.caConfigMap.name
+
+  - it: installs both CRDs and keeps them on uninstall
+    template: templates/crds.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+      - isKind:
+          of: CustomResourceDefinition
+
+  - it: lets the CRDs go with the release when asked
+    set:
+      crds.keep: false
+    template: templates/crds.yaml
+    asserts:
+      - notExists:
+          path: metadata.annotations["helm.sh/resource-policy"]
+
+  - it: omits the CRDs when told to
+    set:
+      crds.enabled: false
+    template: templates/crds.yaml
+    asserts:
+      - hasDocuments:
+          count: 0

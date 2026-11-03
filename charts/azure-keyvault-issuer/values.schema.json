@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+    "replicaCount": { "type": "integer", "minimum": 1 },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string" },
+        "digest": { "type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$" },
+        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "imagePullSecrets": { "type": "array", "items": { "type": "object" } },
+    "crds": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "keep": { "type": "boolean" }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "annotations": { "type": "object" }
+      }
+    },
+    "workloadIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "clientID": { "type": "string", "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})?$" },
+        "tenantID": { "type": "string", "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})?$" },
+        "useWebhook": { "type": "boolean" },
+        "tokenExpirationSeconds": { "type": "integer", "minimum": 600 }
+      }
+    },
+    "controller": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "logLevel": { "enum": ["debug", "info", "warn", "error"] },
+        "clusterResourceNamespace": { "type": "string" },
+        "clusterIssuerAmbientCredentials": { "type": "boolean" },
+        "issuerAmbientCredentials": { "type": "boolean" },
+        "allowedVaults": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^https://[a-zA-Z][a-zA-Z0-9-]{1,22}[a-zA-Z0-9]\\.vault\\.azure\\.net/?$" }
+        },
+        "maxRetryDuration": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$" },
+        "concurrentWorkers": { "type": "integer", "minimum": 1 },
+        "signCertificateSigningRequests": { "type": "boolean" },
+        "gracefulShutdownTimeout": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$" },
+        "extraArgs": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "clusterIssuer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "serviceAccounts": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "secrets": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "tenantAccess": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["namespace"],
+        "anyOf": [{ "required": ["serviceAccounts"] }, { "required": ["secrets"] }],
+        "properties": {
+          "namespace": { "type": "string", "minLength": 1 },
+          "serviceAccounts": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+          "secrets": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+    "rbac": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "create": { "type": "boolean" } }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "secretName": { "type": "string" }
+          }
+        },
+        "serviceMonitor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "interval": { "type": "string" },
+            "labels": { "type": "object" },
+            "caConfigMap": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string" },
+                "key": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "ingressFrom": { "type": "array", "items": { "type": "object" } },
+        "egressPorts": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 65535 } },
+        "egressTo": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "maxUnavailable": { "type": ["integer", "string"] }
+      }
+    },
+    "resources": { "type": "object" },
+    "extraEnv": { "type": "array", "items": { "type": "object" } },
+    "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 },
+    "podSecurityContext": { "type": "object" },
+    "securityContext": { "type": "object" },
+    "podAnnotations": { "type": "object" },
+    "podLabels": { "type": "object" },
+    "priorityClassName": { "type": "string" },
+    "nodeSelector": { "type": "object" },
+    "tolerations": { "type": "array", "items": { "type": "object" } },
+    "affinity": { "type": "object" },
+    "topologySpreadConstraints": { "type": "array", "items": { "type": "object" } }
+  }
+}

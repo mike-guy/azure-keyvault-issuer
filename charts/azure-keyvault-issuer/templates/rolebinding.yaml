@@ -1,0 +1,22 @@
+{{- if .Values.rbac.create }}
+{{- range $i, $role := (include "akvi.namespacedRoles" . | fromYaml).roles }}
+{{- if $i }}
+---
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $role.name }}
+  namespace: {{ $role.namespace }}
+  labels:
+    {{- include "akvi.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $role.name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "akvi.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}

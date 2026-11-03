@@ -1,0 +1,57 @@
+# Set up with 'mise trust && make tools'. To add or upgrade a tool, run
+# 'mise use <tool>@<version>', which updates this file and mise.lock. Renovate
+# raises a pull request when a new version comes out.
+#
+# Go itself isn't here: go.mod's toolchain line sets it. Tools needed only in
+# CI are in mise.ci.toml, which mise adds on top of this file when MISE_ENV=ci.
+min_version = "2026.10.0"
+
+[settings]
+lockfile = true
+
+[tools]
+# Go: linting, security and release.
+"aqua:golangci/golangci-lint" = "2.15.0"
+"go:golang.org/x/vuln/cmd/govulncheck" = "1.9.0"
+"aqua:caarlos0/svu" = "3.4.1"
+"aqua:rhysd/actionlint" = "1.7.12"
+"aqua:aquasecurity/trivy" = "0.76.1"
+"aqua:goreleaser/goreleaser" = "2.19.0"
+"aqua:zizmorcore/zizmor" = "1.31.1"
+"aqua:pre-commit/pre-commit" = "4.7.0"
+"aqua:gitleaks/gitleaks" = "8.30.1"
+# The Python pre-commit runs on.
+python = "3.14.10"
+
+# Kubernetes: code generation, tests and the chart.
+"go:sigs.k8s.io/controller-tools/cmd/controller-gen" = "0.23.0"
+"aqua:kubernetes-sigs/controller-runtime/setup-envtest" = "0.25.2"
+"aqua:helm/helm" = "4.3.1"
+"aqua:norwoodj/helm-docs" = "1.14.2"
+# The chart's unit tests. It ships as a Helm plugin, but the plugin only runs
+# this binary (named untt-<os>-<arch> in the release, so bin renames it).
+"github:helm-unittest/helm-unittest" = { version = "1.2.1", bin = "untt" }
+"aqua:helm/chart-testing" = "3.15.0"
+"aqua:yannh/kubeconform" = "0.8.0"
+"aqua:kubernetes-sigs/kind" = "0.33.0"
+"aqua:kubernetes/kubectl" = "1.37.1"
+# Fast image builds for 'make image'. GoReleaser embeds ko for releases.
+"aqua:ko-build/ko" = "0.19.1"
+
+# End-to-end on AKS: crane pushes the image tarball to the run's registry, and
+# kubelogin lets kubectl and helm sign in with the Azure CLI session.
+"aqua:google/go-containerregistry" = "0.22.1"
+"aqua:Azure/kubelogin" = "0.2.22"
+
+# The Azure CLI isn't here: install it with your package manager. CI uses the
+# runner's, as azure/login does (see CONTRIBUTING.md).
+#
+# Reads Terraform outputs and Azure and GitHub API responses in the scripts.
+"aqua:jqlang/jq" = "1.8.2"
+
+# End-to-end infrastructure (kept OpenTofu-compatible).
+"aqua:hashicorp/terraform" = "1.17.0"
+"aqua:terraform-linters/tflint" = "0.65.0"
+
+# Reading and editing the chart's versions in the release script.
+"aqua:mikefarah/yq" = "4.54.1"

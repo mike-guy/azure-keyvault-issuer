@@ -1,0 +1,258 @@
+suite: deployment
+templates:
+  - templates/deployment.yaml
+release:
+  name: akvi
+  namespace: cert-manager
+tests:
+  - it: runs one replica of the pinned-by-appVersion image by default
+    # Set here, so the test does not change with each chart release.
+    chart:
+      appVersion: 1.2.3
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/mike-guy/azure-keyvault-issuer:1.2.3
+
+  - it: prefers the digest over the tag
+    set:
+      image.tag: v1.2.3
+      image.digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/mike-guy/azure-keyvault-issuer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+  - it: meets the restricted Pod Security Standard exactly
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            fsGroup: 65532
+            runAsGroup: 65532
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsGroup: 65532
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
+
+  - it: does not automount the ServiceAccount token, and mounts the API token explicitly
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: kube-api-access
+            mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+            readOnly: true
+      - equal:
+          path: spec.template.spec.volumes[1].name
+          value: kube-api-access
+
+  - it: has no ambient identity by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AZURE_CLIENT_ID
+            value: ""
+      - notExists:
+          path: spec.template.metadata.labels["azure.workload.identity/use"]
+      - lengthEqual:
+          path: spec.template.spec.volumes
+          count: 2
+
+  - it: passes the secure defaults of the controller as flags
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - --log-level=info
+            - --cluster-issuer-ambient-credentials=true
+            - --issuer-ambient-credentials=false
+            - --max-retry-duration=5m
+            - --concurrent-workers=5
+            - --graceful-shutdown-timeout=30s
+            - --health-probe-bind-address=:8081
+            - --metrics-bind-address=:8443
+
+  - it: maps values to flags
+    set:
+      controller.clusterResourceNamespace: issuers
+      controller.issuerAmbientCredentials: true
+      controller.allowedVaults:
+        - https://ca-one.vault.azure.net
+        - https://ca-two.vault.azure.net
+      controller.concurrentWorkers: 10
+      metrics.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --concurrent-workers=10
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --cluster-resource-namespace=issuers
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --issuer-ambient-credentials=true
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --issuer-allowed-vaults=https://ca-one.vault.azure.net,https://ca-two.vault.azure.net
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --metrics-bind-address=0
+      - notExists:
+          path: spec.template.spec.containers[0].ports[1]
+
+  - it: signs Kubernetes CertificateSigningRequests only when asked
+    set:
+      controller.signCertificateSigningRequests: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --sign-certificatesigningrequests
+
+  - it: mounts the metrics certificate as optional, so the pod starts before it is issued
+    set:
+      metrics.tls.secretName: akvi-metrics-tls
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --metrics-cert-path=/var/run/secrets/metrics-tls
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: metrics-tls
+            mountPath: /var/run/secrets/metrics-tls
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: metrics-tls
+            secret:
+              secretName: akvi-metrics-tls
+              optional: true
+              defaultMode: 0440
+
+  - it: ignores the metrics certificate when there is no metrics endpoint
+    set:
+      metrics.enabled: false
+      metrics.tls.secretName: akvi-metrics-tls
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --metrics-cert-path=/var/run/secrets/metrics-tls
+      - lengthEqual:
+          path: spec.template.spec.volumes
+          count: 2
+
+  - it: projects the workload identity token itself without the webhook
+    set:
+      workloadIdentity.clientID: 00000000-0000-0000-0000-000000000001
+      workloadIdentity.tenantID: 00000000-0000-0000-0000-000000000002
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AZURE_CLIENT_ID
+            value: "00000000-0000-0000-0000-000000000001"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AZURE_TENANT_ID
+            value: "00000000-0000-0000-0000-000000000002"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AZURE_FEDERATED_TOKEN_FILE
+            value: /var/run/secrets/azure/tokens/azure-identity-token
+      - equal:
+          path: spec.template.spec.volumes[2].projected.sources[0].serviceAccountToken
+          value:
+            audience: api://AzureADTokenExchange
+            expirationSeconds: 3600
+            path: azure-identity-token
+      - notExists:
+          path: spec.template.metadata.labels["azure.workload.identity/use"]
+
+  - it: leaves the token and environment to the webhook when it is used
+    set:
+      workloadIdentity.clientID: 00000000-0000-0000-0000-000000000001
+      workloadIdentity.tenantID: 00000000-0000-0000-0000-000000000002
+      workloadIdentity.useWebhook: true
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels["azure.workload.identity/use"]
+          value: "true"
+      - lengthEqual:
+          path: spec.template.spec.volumes
+          count: 2
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AZURE_CLIENT_ID
+            value: "00000000-0000-0000-0000-000000000001"
+
+  - it: requires a tenant when there is an ambient identity
+    set:
+      workloadIdentity.clientID: 00000000-0000-0000-0000-000000000001
+    asserts:
+      - failedTemplate:
+          errorMessage: workloadIdentity.tenantID is required when workloadIdentity.clientID is set
+
+  - it: passes the container's memory limit to the controller
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MEMORY_LIMIT_BYTES
+            valueFrom:
+              resourceFieldRef:
+                containerName: controller
+                resource: limits.memory
+
+  - it: serves probes on the health port
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet
+          value:
+            path: /healthz
+            port: health
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet
+          value:
+            path: /readyz
+            port: health
+
+  - it: adds the chart's selector labels to topology spread constraints
+    set:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].labelSelector.matchLabels
+          value:
+            app.kubernetes.io/name: azure-keyvault-issuer
+            app.kubernetes.io/instance: akvi
+            app.kubernetes.io/component: controller

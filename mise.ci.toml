@@ -1,0 +1,14 @@
+# Tools needed only in CI, on top of mise.toml. mise reads this file as well
+# when MISE_ENV=ci, which the workflows that need these tools set. mise.ci.lock
+# records their downloads, as mise.lock does for mise.toml.
+#
+# To add or upgrade a tool here, run 'mise use --env ci <tool>@<version>'.
+# Renovate keeps it up to date like mise.toml.
+
+[tools]
+# Release drafts, attestation checks and the chart-bump pull request in
+# release.yml.
+"aqua:cli/cli" = "2.103.3"
+# Keyless signing and verification of the image and the chart in release.yml.
+# It needs the workflow's OIDC token, so it never runs locally.
+"aqua:sigstore/cosign" = "3.1.4"

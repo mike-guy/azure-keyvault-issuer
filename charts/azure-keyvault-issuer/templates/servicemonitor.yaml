@@ -1,0 +1,39 @@
+{{- if and .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled }}
+{{- $ca := .Values.metrics.serviceMonitor.caConfigMap }}
+{{- if and $ca.name (not .Values.metrics.tls.secretName) }}
+{{- fail "metrics.serviceMonitor.caConfigMap needs metrics.tls.secretName: without it the controller serves a self-signed certificate, which can never verify" }}
+{{- end }}
+{{- if and .Values.metrics.tls.secretName (not $ca.name) }}
+{{- fail "metrics.tls.secretName needs metrics.serviceMonitor.caConfigMap.name, so the ServiceMonitor can verify the certificate (see docs/metrics.md)" }}
+{{- end }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "akvi.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akvi.labels" . | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "akvi.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: metrics
+      scheme: https
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tlsConfig:
+        {{- if $ca.name }}
+        serverName: {{ include "akvi.fullname" . }}-metrics.{{ .Release.Namespace }}.svc
+        ca:
+          configMap:
+            name: {{ $ca.name }}
+            key: {{ $ca.key }}
+        {{- else }}
+        # The controller serves a certificate it generates itself.
+        insecureSkipVerify: true
+        {{- end }}
+{{- end }}

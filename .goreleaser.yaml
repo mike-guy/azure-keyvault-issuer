@@ -1,0 +1,114 @@
+# GoReleaser builds the controller, pushes its container image, and creates the
+# GitHub release as a draft with the CRDs attached. The signatures and the
+# attestations are made by the release workflow (release.yml) around this,
+# through the 'release-*' make targets, and the workflow writes the draft's
+# notes; the maintainer publishes it. The chart is released separately, under
+# chart-v tags. Locally, 'make release-check' validates this file and 'make
+# snapshot' builds everything into dist/, unpublished.
+#
+# Run it through make: scripts/release.sh adds --skip=archive, because the
+# controller only runs in a pod, so no binaries are published, and GoReleaser
+# has no setting that turns its default archive off.
+version: 2
+
+project_name: azure-keyvault-issuer
+
+# The chart's chart-v tags are not controller versions: without this, one could
+# be taken for the previous release, and the changelog would start from it.
+git:
+  ignore_tags:
+    - "chart-v*"
+
+builds:
+  - id: azure-keyvault-issuer
+    main: ./cmd/azure-keyvault-issuer
+    binary: azure-keyvault-issuer
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    # Keep in step with LDFLAGS in the Makefile. Only the version is injected;
+    # Go records the commit and its time in the binary itself.
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    # The commit's time rather than the build's, so builds are reproducible.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+# The container image is built by ko, which GoReleaser embeds. It needs no
+# Dockerfile or Docker daemon: it puts the binary on a distroless base.
+kos:
+  - id: image
+    build: azure-keyvault-issuer
+    # IMAGE_REPO comes from the Makefile, which holds the image's name.
+    repositories:
+      - '{{ envOrDefault "IMAGE_REPO" "ghcr.io/mike-guy/azure-keyvault-issuer" }}'
+    # Static, non-root and shell-free. Renovate keeps the digest current.
+    # renovate: datasource=docker depName=gcr.io/distroless/static-debian13
+    base_image: gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
+    platforms: [linux/amd64, linux/arm64]
+    tags:
+      - "{{ .Version }}"
+    # Name the image exactly as in repositories, with no binary name appended.
+    bare: true
+    # The commit's time, for reproducible images.
+    creation_time: "{{ .CommitTimestamp }}"
+    ko_data_creation_time: "{{ .CommitTimestamp }}"
+    # Trivy writes the SBOM in the release workflow, as for the chart.
+    sbom: none
+    labels:
+      org.opencontainers.image.source: https://github.com/mike-guy/azure-keyvault-issuer
+      org.opencontainers.image.licenses: MIT
+      org.opencontainers.image.version: "{{ .Version }}"
+
+# With no archives there is nothing to checksum: the CRDs carry build
+# provenance instead, which release.yml attests.
+checksum:
+  disable: true
+
+snapshot:
+  # make snapshot: the next patch version, marked as a snapshot of this commit.
+  version_template: "{{ incpatch .Version }}-SNAPSHOT-{{ .ShortCommit }}"
+
+changelog:
+  # git rather than github, so 'make snapshot' works without a token.
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^Merge "
+      - "^(build|chore|ci|docs|refactor|revert|style|test)(\\(.+\\))?:"
+      # Chart changes go in the chart's own release notes.
+      - "^\\w+\\(chart\\)!?:"
+  groups:
+    - title: Breaking changes
+      regexp: '^\w+(\(.+\))?!:'
+      order: 0
+    - title: Features
+      regexp: '^feat(\(.+\))?:'
+      order: 1
+    - title: Bug fixes
+      regexp: '^fix(\(.+\))?:'
+      order: 2
+    - title: Performance
+      regexp: '^perf(\(.+\))?:'
+      order: 3
+    - title: Other
+      order: 999
+
+# A draft, so that nobody sees a release page before its image is signed and
+# verified. release.yml replaces its notes with ones that say how to install it
+# and name the image by digest, and leaves it a draft: the maintainer writes a
+# summary at the top and publishes it. A re-run after a failure replaces the
+# draft.
+release:
+  github:
+    owner: mike-guy
+    name: azure-keyvault-issuer
+  name_template: "v{{ .Version }}"
+  draft: true
+  replace_existing_draft: true
+  # The generated CRDs, for installing them apart from the chart.
+  extra_files:
+    - glob: deploy/crds/*.yaml

@@ -1,0 +1,11 @@
+{{- if .Values.crds.enabled }}
+{{- range $path, $_ := .Files.Glob "files/crds/*.yaml" }}
+{{- $crd := $.Files.Get $path | fromYaml }}
+{{- $_ := set $crd.metadata "labels" (merge (default (dict) $crd.metadata.labels) (include "akvi.labels" $ | fromYaml)) }}
+{{- if $.Values.crds.keep }}
+{{- $_ := set $crd.metadata "annotations" (merge (default (dict) $crd.metadata.annotations) (dict "helm.sh/resource-policy" "keep")) }}
+{{- end }}
+---
+{{ toYaml $crd }}
+{{- end }}
+{{- end }}

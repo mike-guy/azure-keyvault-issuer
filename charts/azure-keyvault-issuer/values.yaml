@@ -1,0 +1,172 @@
+# -- Overrides the chart's name.
+nameOverride: ""
+# -- Overrides the name that prefixes every resource.
+fullnameOverride: ""
+
+# -- Number of controller replicas. Only the elected leader reconciles, so more than one gives faster failover, not more throughput.
+replicaCount: 1
+
+image:
+  # -- Controller image repository.
+  repository: ghcr.io/mike-guy/azure-keyvault-issuer
+  # -- Image tag. Defaults to the chart's appVersion.
+  tag: ""
+  # -- Image digest, for example `sha256:abc...`. When set it replaces the tag. The release workflow writes the digest of the signed image here.
+  digest: ""
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+
+# -- Secrets for pulling the image, as a list of `name` objects.
+imagePullSecrets: []
+
+crds:
+  # -- Install the issuer CRDs with the chart.
+  enabled: true
+  # -- Keep the CRDs, and with them every issuer, when the release is uninstalled.
+  keep: true
+
+serviceAccount:
+  # -- Create the controller's ServiceAccount.
+  create: true
+  # -- ServiceAccount name. Defaults to the release's full name. Required when `create` is false.
+  name: ""
+  # -- Annotations on the ServiceAccount.
+  annotations: {}
+
+workloadIdentity:
+  # -- Client ID of the controller's own Entra workload identity, used by issuers that set no `auth` method (the ambient identity). Leave empty if every issuer names a ServiceAccount.
+  clientID: ""
+  # -- Entra tenant ID of that identity. Required when `clientID` is set. It is also the default tenant for ServiceAccount references that set none.
+  tenantID: ""
+  # -- Let the Azure workload identity webhook inject the token and environment, as on AKS. When false, the chart projects the token and sets the variables itself, which works on any cluster whose OIDC issuer Entra can reach.
+  useWebhook: false
+  # -- Lifetime in seconds of the projected token, when the chart projects it. The minimum is 600.
+  tokenExpirationSeconds: 3600
+
+controller:
+  # -- Log level: debug, info, warn or error.
+  logLevel: info
+  # -- Namespace in which ClusterIssuer ServiceAccount references resolve. Defaults to the release namespace.
+  clusterResourceNamespace: ""
+  # -- Let ClusterIssuers that set no `auth` method use the controller's ambient identity.
+  clusterIssuerAmbientCredentials: true
+  # -- Let namespaced Issuers that set no `auth` method use the controller's ambient identity. Leave false in multi-tenant clusters, or any team could sign with it.
+  issuerAmbientCredentials: false
+  # -- Key Vault URLs that namespaced Issuers may use, for example `https://my-ca.vault.azure.net`. Empty allows any vault.
+  allowedVaults: []
+  # -- How long a CertificateRequest is retried after transient errors before it fails.
+  maxRetryDuration: 5m
+  # -- How many CertificateRequests, and how many issuers, the controller reconciles at once. More than one stops a slow or throttled vault from holding up every other issuer.
+  concurrentWorkers: 5
+  # -- Also sign Kubernetes CertificateSigningRequests (`certificates.k8s.io`) whose signer name is an AzureKeyVaultClusterIssuer, as well as cert-manager CertificateRequests. Adds a cluster-wide watch on CertificateSigningRequests and the RBAC to sign them. Something else must approve them (see the docs).
+  signCertificateSigningRequests: false
+  # -- How long to wait for in-flight work when stopping.
+  gracefulShutdownTimeout: 30s
+  # -- Extra command-line arguments for the controller.
+  extraArgs: []
+
+clusterIssuer:
+  # -- Names of ServiceAccounts, in the cluster resource namespace, that AzureKeyVaultClusterIssuers may reference. The controller is granted `create` on `serviceaccounts/token` for these names only. Never list the controller's own ServiceAccount: the chart refuses it.
+  serviceAccounts: []
+  # -- Names of Secrets, in the cluster resource namespace, that AzureKeyVaultClusterIssuers may reference for the client certificate and client secret fallback methods. The controller is granted `get` on these Secrets only.
+  secrets: []
+
+# -- Lets Issuers in other namespaces reference named ServiceAccounts (workload identity) or named Secrets (the client certificate and client secret fallbacks), by granting the controller `create` on `serviceaccounts/token`, or `get` on `secrets`, for those names only. Each entry has a `namespace` and a list of `serviceAccounts`, `secrets` or both. Teams can instead create the Roles themselves (see the docs).
+tenantAccess: []
+# - namespace: team-a
+#   serviceAccounts:
+#     - team-a-issuer
+#   secrets:
+#     - team-a-client-cert
+
+rbac:
+  # -- Create the controller's RBAC. If false, you must grant it what the chart would.
+  create: true
+
+metrics:
+  # -- Serve metrics over HTTPS on port 8443, to callers that pass a TokenReview and a SubjectAccessReview. When false, there is no metrics endpoint.
+  enabled: true
+  tls:
+    # -- Name of a `kubernetes.io/tls` Secret, in the release namespace, whose certificate the metrics endpoint serves instead of a self-signed one. Typically issued by cert-manager for `<fullname>-metrics.<namespace>.svc`, after the chart is first installed (see the docs). The Secret is mounted as optional and read when the controller starts: until it exists, or if it can't be loaded, the controller serves a self-signed certificate and logs a warning.
+    secretName: ""
+  serviceMonitor:
+    # -- Create a Prometheus Operator ServiceMonitor. It scrapes with the Prometheus ServiceAccount's token. Unless `caConfigMap` is set, it skips certificate verification, because the controller serves a certificate it generates itself. The Prometheus ServiceAccount needs the `metrics-reader` ClusterRole.
+    enabled: false
+    # -- Scrape interval.
+    interval: 30s
+    # -- Extra labels on the ServiceMonitor, for example to match a Prometheus selector.
+    labels: {}
+    caConfigMap:
+      # -- Name of a ConfigMap, in the release namespace, holding the CA that issued `metrics.tls.secretName`'s certificate, for example one written by trust-manager. When set, the ServiceMonitor verifies the endpoint's certificate and its name. Requires `metrics.tls.secretName`.
+      name: ""
+      # -- Key of the CA certificate in that ConfigMap.
+      key: ca.crt
+
+networkPolicy:
+  # -- Create a NetworkPolicy. Off by default, because a wrong policy silently drops traffic. NetworkPolicy cannot filter by hostname, so egress to Key Vault and Entra is open on the listed ports; use Cilium or Calico FQDN policies for tighter limits (see the docs).
+  enabled: false
+  # -- Peers allowed to reach the probe and metrics ports. Empty allows any.
+  ingressFrom: []
+  # -- TCP ports the controller may reach: HTTPS for Key Vault and Entra, and the Kubernetes API server (443 on most clusters, 6443 on some, including OpenShift).
+  egressPorts:
+    - 443
+    - 6443
+  # -- Destinations for those ports, as NetworkPolicy peers, for example an `ipBlock`. Empty allows any. DNS is always allowed.
+  egressTo: []
+
+podDisruptionBudget:
+  # -- Create a PodDisruptionBudget when there is more than one replica.
+  enabled: true
+  # -- Most pods that may be unavailable at once.
+  maxUnavailable: 1
+
+# -- Resource requests and limits. The controller sets its Go memory limit to 90% of the memory limit.
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    memory: 128Mi
+
+# -- Extra environment variables for the controller, for example `HTTPS_PROXY` and `NO_PROXY`, or `GOMEMLIMIT` to override the memory limit the controller derives. Behind a proxy, add the Kubernetes API server and the cluster's CIDRs to `NO_PROXY`.
+extraEnv: []
+
+# -- Seconds to wait for the pod to stop. Keep it above `controller.gracefulShutdownTimeout`.
+terminationGracePeriodSeconds: 40
+
+# -- Pod-level security context. The defaults meet the restricted Pod Security Standard.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container-level security context. The defaults meet the restricted Pod Security Standard.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Annotations on the pods.
+podAnnotations: {}
+# -- Extra labels on the pods.
+podLabels: {}
+# -- Name of the PriorityClass for the pods.
+priorityClassName: ""
+# -- Node selector for the pods.
+nodeSelector: {}
+# -- Tolerations for the pods.
+tolerations: []
+# -- Affinity for the pods.
+affinity: {}
+# -- Topology spread constraints for the pods. The chart's selector labels are added to each.
+topologySpreadConstraints: []

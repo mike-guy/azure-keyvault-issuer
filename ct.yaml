@@ -1,0 +1,19 @@
+# Settings for chart-testing ('make helm-ct-install'). Linting is left to
+# 'make helm-lint', so the ct lint settings aren't needed.
+chart-dirs:
+  - charts
+charts:
+  - charts/azure-keyvault-issuer
+# Pods must be admitted under the restricted Pod Security Standard. The Makefile
+# creates and labels the namespace and passes it as --namespace, so CT_NAMESPACE
+# overrides this value.
+namespace: akvi-ct
+release-label: app.kubernetes.io/instance
+# For every profile in charts/azure-keyvault-issuer/ci: the image 'make image'
+# builds and loads into kind, and CRDs that go with the release, so each
+# profile installs into a clean cluster.
+helm-extra-set-args: >-
+  --set=image.repository=azure-keyvault-issuer
+  --set=image.tag=dev
+  --set=image.pullPolicy=Never
+  --set=crds.keep=false

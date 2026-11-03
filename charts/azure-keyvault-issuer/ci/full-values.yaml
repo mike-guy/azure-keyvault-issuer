@@ -1,0 +1,22 @@
+# Every optional feature at once, with more than one replica.
+replicaCount: 2
+workloadIdentity:
+  clientID: 00000000-0000-0000-0000-000000000001
+  tenantID: 00000000-0000-0000-0000-000000000002
+controller:
+  signCertificateSigningRequests: true
+metrics:
+  # The Secret doesn't exist under ct install, so this proves the pod starts
+  # without it.
+  tls:
+    secretName: akvi-metrics-tls
+  serviceMonitor:
+    enabled: false # The ServiceMonitor CRD isn't installed by ct install.
+networkPolicy:
+  enabled: true
+podDisruptionBudget:
+  enabled: true
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway

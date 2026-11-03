@@ -1,0 +1,125 @@
+# Git hooks, installed with 'pre-commit install'. Third-party hooks are pinned
+# and installed by pre-commit itself. The project hooks call make targets, so
+# they run exactly what CI runs. Skip one with SKIP=<id> git commit ...
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        # Two trailing spaces are a line break in Markdown, so keep those.
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-yaml
+        # Helm templates aren't valid YAML until rendered.
+        exclude: ^charts/.*/templates/
+        args: [--allow-multiple-documents]
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: detect-private-key
+        # Test fixture: the chain parser must reject PEM bundles carrying a
+        # private key. Gitleaks is satisfied by the inline gitleaks:allow.
+        exclude: ^internal/keyvault/chain_test\.go$
+
+  - repo: https://github.com/renovatebot/pre-commit-hooks
+    rev: 44.178.0
+    hooks:
+      - id: renovate-config-validator
+        # Fail on deprecated options too, not just invalid ones.
+        args: [--strict]
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        # Keep in step with the commits job in .github/workflows/pr.yml.
+        args: [build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test]
+
+  - repo: local
+    hooks:
+      # The gitleaks pinned in mise.toml, on the staged changes only. 'make
+      # secrets' scans the whole history and working tree, as CI does.
+      - id: gitleaks
+        name: gitleaks
+        entry: mise exec -- gitleaks git --pre-commit --staged --redact --verbose
+        language: system
+        pass_filenames: false
+      - id: go-fmt
+        name: go fmt
+        entry: make fmt
+        language: system
+        pass_filenames: false
+        files: \.go$
+      - id: go-tidy
+        name: go mod tidy
+        entry: make tidy-check
+        language: system
+        pass_filenames: false
+        files: (^|/)go\.(mod|sum)$
+      - id: go-build
+        name: go build
+        entry: make build-check
+        language: system
+        pass_filenames: false
+        files: \.go$|(^|/)go\.(mod|sum)$
+      - id: go-lint
+        name: golangci-lint
+        entry: make lint
+        language: system
+        pass_filenames: false
+        files: \.go$|^\.golangci\.yml$
+      - id: go-test
+        name: go test
+        entry: make test-short
+        language: system
+        pass_filenames: false
+        files: \.go$|(^|/)go\.(mod|sum)$|/testdata/
+      - id: generate
+        name: generate code and CRDs
+        entry: make generate manifests
+        language: system
+        pass_filenames: false
+        files: ^api/.*\.go$
+      - id: helm
+        name: helm lint, unittest and docs
+        entry: make helm-lint helm-test helm-docs-check
+        language: system
+        pass_filenames: false
+        files: ^charts/
+      - id: tf-fmt
+        name: terraform fmt
+        entry: make tf-fmt
+        language: system
+        pass_filenames: false
+        files: \.tf$
+      - id: tf-validate
+        name: terraform validate and tflint
+        entry: make tf-validate tf-lint
+        language: system
+        pass_filenames: false
+        files: \.(tf|hcl)$
+      - id: actions-lint
+        name: actionlint and zizmor
+        entry: make actions-lint
+        language: system
+        pass_filenames: false
+        files: ^\.github/(workflows|actions)/
+      - id: release-check
+        name: goreleaser check
+        entry: make release-check
+        language: system
+        pass_filenames: false
+        files: ^\.goreleaser\.yaml$
+      - id: go-vuln
+        name: govulncheck
+        entry: make vuln
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

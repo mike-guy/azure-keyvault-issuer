@@ -1,0 +1,6 @@
+# Known vulnerabilities that don't affect azure-keyvault-issuer. OSV-Scanner
+# reads this, and so does the OpenSSF Scorecard's Vulnerabilities check.
+# govulncheck and Trivy don't, and neither fails on these anyway.
+#
+# Each entry expires, so it's looked at again rather than ignored for good.
+# There are none at present.

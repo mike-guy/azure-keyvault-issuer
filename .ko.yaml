@@ -1,0 +1,13 @@
+# Settings for 'make image', which builds the controller image with ko for local
+# use. Releases use the kos section of .goreleaser.yaml instead. The base image
+# comes from there too (see the image target), so it is pinned in one place.
+builds:
+  - id: azure-keyvault-issuer
+    main: ./cmd/azure-keyvault-issuer
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    # Keep in step with LDFLAGS in the Makefile.
+    ldflags:
+      - -s -w -X main.version={{ .Env.VERSION }}

@@ -1,0 +1,45 @@
+{{- if .Values.rbac.create }}
+{{- range $i, $role := (include "akvi.namespacedRoles" . | fromYaml).roles }}
+{{- if $i }}
+---
+{{- end }}
+{{- if eq $role.kind "lease" }}
+# Leader election, in the namespace of the lease.
+{{- else if eq $role.kind "token" }}
+# Lets the controller mint tokens for the named ServiceAccounts in this
+# namespace, so issuers there may reference them, and for no others.
+{{- else }}
+# Lets the controller read the named Secrets in this namespace, so issuers
+# there may use them for client certificate or client secret auth, and no
+# others. Only get is granted: the controller never lists or watches Secrets.
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $role.name }}
+  namespace: {{ $role.namespace }}
+  labels:
+    {{- include "akvi.labels" $ | nindent 4 }}
+rules:
+  {{- if eq $role.kind "lease" }}
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  {{- else if eq $role.kind "token" }}
+  - apiGroups: [""]
+    resources: ["serviceaccounts/token"]
+    resourceNames:
+      {{- toYaml $role.names | nindent 6 }}
+    verbs: ["create"]
+  {{- else }}
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      {{- toYaml $role.names | nindent 6 }}
+    verbs: ["get"]
+  {{- end }}
+{{- end }}
+{{- end }}
