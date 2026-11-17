@@ -1,0 +1,31 @@
+{{- if and .Values.rbac.create .Values.approverRole.enabled }}
+{{- /* cert-manager's built-in approver may only approve for signers it has been told of. Without this its CertificateRequests for these issuers are never approved, so the controller never sees them. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "azure-keyvault-issuer.fullname" . }}-approver
+  labels:
+    {{- include "azure-keyvault-issuer.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["cert-manager.io"]
+    resources: ["signers"]
+    verbs: ["approve"]
+    resourceNames:
+      - azurekeyvaultissuers.azure-keyvault-issuer.mike-guy.github.io/*
+      - azurekeyvaultclusterissuers.azure-keyvault-issuer.mike-guy.github.io/*
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "azure-keyvault-issuer.fullname" . }}-approver
+  labels:
+    {{- include "azure-keyvault-issuer.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "azure-keyvault-issuer.fullname" . }}-approver
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.approverRole.serviceAccountName }}
+    namespace: {{ .Values.approverRole.namespace }}
+{{- end }}

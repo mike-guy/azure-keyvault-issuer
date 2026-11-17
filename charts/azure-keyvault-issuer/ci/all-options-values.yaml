@@ -1,0 +1,92 @@
+fullnameOverride: keyvault-issuer
+image:
+  tag: 0.1.0
+  pullPolicy: Always
+imagePullSecrets:
+  - name: registry
+replicaCount: 2
+crds:
+  keep: false
+clusterResourceNamespace: issuers
+maxConcurrentReconciles: 2
+reconcileTimeout: 90s
+caExpiryWarningThreshold: 720h
+warnOnExportableCAKey: false
+azure:
+  maxRetries: 5
+  tryTimeout: 20s
+logging:
+  level: info
+  encoder: console
+metrics:
+  enabled: true
+  port: 9443
+  serviceMonitor:
+    enabled: true
+    interval: 1m
+    labels:
+      release: prometheus
+serviceAccount:
+  name: keyvault-issuer
+  annotations:
+    azure.workload.identity/client-id: 00000000-0000-0000-0000-000000000000
+rbac:
+  secretNamespaces:
+    - team-a
+approverRole:
+  serviceAccountName: cert-manager-approver
+  namespace: certs
+podAnnotations:
+  example.com/owner: platform
+podLabels:
+  azure.workload.identity/use: "true"
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+priorityClassName: system-cluster-critical
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: platform
+    effect: NoSchedule
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          topologyKey: kubernetes.io/hostname
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: azure-keyvault-issuer
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: azure-keyvault-issuer
+podDisruptionBudget:
+  enabled: true
+networkPolicy:
+  enabled: true
+  metricsFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+  extraEgress:
+    - ports:
+        - port: 6443
+          protocol: TCP
+extraArgs:
+  - --enable-http2
+extraEnv:
+  - name: AZURE_TENANT_ID
+    value: 00000000-0000-0000-0000-000000000000
+  - name: AUTOMEMLIMIT
+    value: "0.8"

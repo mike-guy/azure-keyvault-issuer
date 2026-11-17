@@ -1,0 +1,18 @@
+# Settings for 'trivy fs' (mise run trivy:fs, and the security workflow). Not
+# called trivy.yaml, which Trivy would also load for 'trivy config' in the
+# chart:security task and override its scanners.
+scan:
+  scanners:
+    - vuln
+    - secret
+    - license
+  skip-dirs:
+    - bin
+    - .e2e
+    - .mise
+severity:
+  - HIGH
+  - CRITICAL
+exit-code: 1
+vulnerability:
+  ignore-unfixed: true

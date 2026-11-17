@@ -1,0 +1,29 @@
+replicaCount: 2
+metrics:
+  enabled: true
+  certSecretName: metrics-tls
+  serviceMonitor:
+    enabled: true
+    tlsConfig:
+      serverName: metrics.example.com
+networkPolicy:
+  enabled: true
+  metricsFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+maxConcurrentReconciles: 5
+reconcileTimeout: 2m
+azure:
+  maxRetries: 0
+  tryTimeout: 30s
+logging:
+  level: debug
+  encoder: json
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: azure-keyvault-issuer

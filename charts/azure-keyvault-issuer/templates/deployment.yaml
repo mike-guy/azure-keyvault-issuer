@@ -1,0 +1,143 @@
+{{- $probePort := 8081 }}
+{{- if and .Values.metrics.enabled (eq (int .Values.metrics.port) $probePort) }}
+{{- fail (printf "metrics.port must not be %d, which is the health probe port" $probePort) }}
+{{- end }}
+{{- if and .Values.metrics.certSecretName (not (and .Values.metrics.enabled .Values.metrics.secure)) }}
+{{- fail "metrics.certSecretName needs metrics.enabled and metrics.secure to be true" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "azure-keyvault-issuer.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "azure-keyvault-issuer.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "azure-keyvault-issuer.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "azure-keyvault-issuer.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "azure-keyvault-issuer.serviceAccountName" . }}
+      # The controller reads its namespace and calls the API server with the projected token.
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: manager
+          image: {{ include "azure-keyvault-issuer.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          args:
+            - --leader-elect
+            {{- if .Values.clusterResourceNamespace }}
+            - --cluster-resource-namespace={{ .Values.clusterResourceNamespace }}
+            {{- end }}
+            {{- if .Values.metrics.enabled }}
+            - --metrics-bind-address=:{{ .Values.metrics.port }}
+            - --metrics-secure={{ .Values.metrics.secure }}
+            {{- if .Values.metrics.certSecretName }}
+            - --metrics-cert-path=/etc/metrics-certs
+            {{- end }}
+            {{- end }}
+            {{- if not (kindIs "invalid" .Values.maxConcurrentReconciles) }}
+            - --max-concurrent-reconciles={{ .Values.maxConcurrentReconciles }}
+            {{- end }}
+            {{- if not (kindIs "invalid" .Values.reconcileTimeout) }}
+            - --reconcile-timeout={{ .Values.reconcileTimeout }}
+            {{- end }}
+            {{- if not (kindIs "invalid" .Values.caExpiryWarningThreshold) }}
+            - --ca-expiry-warning-threshold={{ .Values.caExpiryWarningThreshold }}
+            {{- end }}
+            {{- if not (kindIs "invalid" .Values.warnOnExportableCAKey) }}
+            - --warn-on-exportable-ca-key={{ .Values.warnOnExportableCAKey }}
+            {{- end }}
+            {{- if not (kindIs "invalid" .Values.azure.maxRetries) }}
+            - --azure-max-retries={{ .Values.azure.maxRetries }}
+            {{- end }}
+            {{- if not (kindIs "invalid" .Values.azure.tryTimeout) }}
+            - --azure-try-timeout={{ .Values.azure.tryTimeout }}
+            {{- end }}
+            {{- if not (kindIs "invalid" .Values.logging.level) }}
+            - --zap-log-level={{ .Values.logging.level }}
+            {{- end }}
+            {{- if not (kindIs "invalid" .Values.logging.encoder) }}
+            - --zap-encoder={{ .Values.logging.encoder }}
+            {{- end }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- with .Values.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: health
+              containerPort: {{ $probePort }}
+              protocol: TCP
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.metrics.certSecretName }}
+          volumeMounts:
+            - name: metrics-certs
+              mountPath: /etc/metrics-certs
+              readOnly: true
+          {{- end }}
+      {{- if .Values.metrics.certSecretName }}
+      volumes:
+        - name: metrics-certs
+          secret:
+            secretName: {{ .Values.metrics.certSecretName }}
+            defaultMode: 0440
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

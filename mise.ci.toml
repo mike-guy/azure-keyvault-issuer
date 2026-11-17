@@ -1,0 +1,10 @@
+# Tools only CI needs, so a contributor's 'mise install' doesn't fetch them.
+# mise loads this file when MISE_ENV=ci, which the workflows set. To run one of
+# these checks yourself: MISE_ENV=ci mise run ci:vuln
+[tools]
+# Built from source, which is slow, so it stays out of mise.toml.
+"go:golang.org/x/vuln/cmd/govulncheck" = "1.9.0"
+
+[tasks."ci:vuln"]
+description = "Check the Go dependencies for known vulnerabilities"
+run = "govulncheck ./..."

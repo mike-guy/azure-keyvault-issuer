@@ -1,0 +1,26 @@
+The azure-keyvault-issuer controller has been installed in namespace {{ .Release.Namespace }}.
+
+Check that it is running:
+
+  kubectl --namespace {{ .Release.Namespace }} get deployment {{ include "azure-keyvault-issuer.fullname" . }}
+
+Then create an AzureKeyVaultIssuer or AzureKeyVaultClusterIssuer and check its Ready condition:
+
+  kubectl get azurekeyvaultclusterissuers
+
+The short names are akvci (or akvcis) for AzureKeyVaultClusterIssuer and akvi (or akvis) for AzureKeyVaultIssuer.
+{{- if not .Values.crds.install }}
+
+The CustomResourceDefinitions were not installed, so they must already exist in the cluster.
+{{- end }}
+{{- if and (not .Values.serviceAccount.annotations) (not .Values.podLabels) }}
+
+No workload identity settings were given. An AzureKeyVaultClusterIssuer without an auth block, or one that uses
+workloadIdentity, needs the controller's identity. See the chart README.
+{{- end }}
+{{- if not .Values.rbac.secretNamespaces }}
+
+The controller can read Secrets and mint ServiceAccount tokens in every namespace, so that an AzureKeyVaultIssuer works
+wherever it is created. Set rbac.secretNamespaces to limit that to the namespaces you list. Each new namespace then
+needs a helm upgrade, and until then its issuer is not Ready, with a Forbidden error.
+{{- end }}

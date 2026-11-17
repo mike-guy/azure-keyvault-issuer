@@ -1,0 +1,73 @@
+suite: approver
+templates:
+  - templates/approver.yaml
+tests:
+  - it: lets cert-manager approve for both issuer kinds by default
+    release:
+      name: rel
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: ClusterRole
+      - equal:
+          path: metadata.name
+          value: rel-azure-keyvault-issuer-approver
+      - equal:
+          path: rules
+          value:
+            - apiGroups: ["cert-manager.io"]
+              resources: ["signers"]
+              verbs: ["approve"]
+              resourceNames:
+                - azurekeyvaultissuers.azure-keyvault-issuer.mike-guy.github.io/*
+                - azurekeyvaultclusterissuers.azure-keyvault-issuer.mike-guy.github.io/*
+
+  - it: binds the role to cert-manager's ServiceAccount by default
+    release:
+      name: rel
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: ClusterRoleBinding
+      - equal:
+          path: roleRef.name
+          value: rel-azure-keyvault-issuer-approver
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: cert-manager
+              namespace: cert-manager
+
+  - it: binds the role to the ServiceAccount that is named
+    set:
+      approverRole.serviceAccountName: approver
+      approverRole.namespace: certs
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: approver
+              namespace: certs
+
+  - it: makes nothing when the approver role is off
+    set:
+      approverRole.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: makes nothing when RBAC is not created
+    set:
+      rbac.create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: refuses a namespace that is not one
+    set:
+      approverRole.namespace: Not_A_Namespace
+    asserts:
+      - failedTemplate: {}

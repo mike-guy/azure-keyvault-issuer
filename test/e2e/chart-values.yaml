@@ -1,0 +1,6 @@
+# The chart's values for the e2e kind cluster, with the image that
+# e2e:kind:image:load builds and loads. Never pulled, so a missing load fails loudly.
+image:
+  repository: azure-keyvault-issuer
+  tag: e2e
+  pullPolicy: Never

@@ -1,0 +1,33 @@
+suite: poddisruptionbudget
+templates:
+  - templates/poddisruptionbudget.yaml
+tests:
+  - it: renders nothing for a single replica
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: allows one replica to be unavailable when there are several
+    release:
+      name: rel
+    set:
+      replicaCount: 2
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+      - equal:
+          path: spec.maxUnavailable
+          value: 1
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: azure-keyvault-issuer
+            app.kubernetes.io/instance: rel
+
+  - it: renders nothing when disabled
+    set:
+      replicaCount: 3
+      podDisruptionBudget.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0

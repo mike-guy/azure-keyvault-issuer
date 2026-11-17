@@ -1,0 +1,77 @@
+name: Bug report
+description: Something the issuer does wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Please don't include
+        subscription IDs, tenant IDs, vault URLs you want private or
+        credentials. Replace IDs with `00000000-0000-0000-0000-000000000000`.
+
+        To report a security vulnerability, please use
+        [private vulnerability reporting](https://github.com/mike-guy/azure-keyvault-issuer/security/advisories/new)
+        instead of an issue.
+  - type: input
+    id: version
+    attributes:
+      label: Controller version
+      description: The image tag the controller runs
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: chart-version
+    attributes:
+      label: Chart version
+      description: The Helm chart version, if you installed with Helm
+      placeholder: 0.1.0
+  - type: input
+    id: cert-manager
+    attributes:
+      label: cert-manager version
+      placeholder: v1.21.3
+    validations:
+      required: true
+  - type: input
+    id: kubernetes
+    attributes:
+      label: Kubernetes version and distribution
+      placeholder: 1.35, AKS
+    validations:
+      required: true
+  - type: dropdown
+    id: auth
+    attributes:
+      label: How does the controller authenticate to Azure?
+      options:
+        - Workload identity
+        - Client secret
+        - Client certificate
+        - Ambient credentials
+    validations:
+      required: true
+  - type: textarea
+    id: issuer
+    attributes:
+      label: The issuer
+      description: The AzureKeyVaultIssuer or AzureKeyVaultClusterIssuer, with IDs replaced
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: |
+        Include the status and events of the CertificateRequest and the issuer
+        (`kubectl describe`), and the controller's logs around the failure.
+      render: text
+    validations:
+      required: true

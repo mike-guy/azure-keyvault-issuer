@@ -1,0 +1,157 @@
+image:
+  # -- Image repository.
+  repository: ghcr.io/mike-guy/azure-keyvault-issuer
+  # -- Image tag. Defaults to the chart's appVersion.
+  tag: ""
+  # -- Image digest, such as `sha256:...`. When set, it is used instead of the tag.
+  digest: ""
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+
+# -- Secrets used to pull the image.
+imagePullSecrets: []
+
+# -- Overrides the chart name in resource names.
+nameOverride: ""
+# -- Overrides the full name of resources.
+fullnameOverride: ""
+
+# -- Number of controller replicas. Leader election is always on, so only one replica reconciles and the rest are for availability.
+replicaCount: 1
+
+crds:
+  # -- Install the CustomResourceDefinitions with the chart.
+  install: true
+  # -- Keep the CustomResourceDefinitions when the release is uninstalled. Deleting them deletes every issuer.
+  keep: true
+
+# -- Namespace in which a ClusterIssuer's Secrets and ServiceAccount are found. Defaults to the release namespace.
+clusterResourceNamespace: ""
+
+# -- How many objects each controller reconciles at once. Unset uses the controller's default.
+maxConcurrentReconciles: null
+
+# -- The longest a single issuer check or signing may take, such as `2m`. Unset uses the controller's default.
+reconcileTimeout: null
+
+# -- How close to expiry the CA chain must be for the controller to record a `CAExpiring` warning event on the issuer, such as `720h`. Go durations have no day unit, so 90 days is `2160h`. Unset uses the controller's default, 90 days.
+caExpiryWarningThreshold: null
+
+# -- Record a `CAKeyExportable` warning event on an issuer whose CA private key can be exported from Key Vault. Judged from the certificate's policy, and from the backing secret when the issuer has `chainInSecret` set. No warning does not prove the key is safe. Unset uses the controller's default, which is on.
+warnOnExportableCAKey: null
+
+azure:
+  # -- How many times a failed Azure request is retried. 0 disables retries. Unset uses the controller's default.
+  maxRetries: null
+  # -- How long one Azure request attempt may take, such as `30s`. Unset uses the controller's default.
+  tryTimeout: null
+
+logging:
+  # -- Log level: `debug`, `info`, `error`, or an integer above 0 for more verbose debug logs. Unset uses the controller's default.
+  level: null
+  # -- Log format: `json` or `console`. Unset uses the controller's default.
+  encoder: null
+
+metrics:
+  # -- Serve Prometheus metrics. Off by default, as the controller's metrics endpoint is.
+  enabled: false
+  # -- Port of the metrics endpoint.
+  port: 8443
+  # -- Serve metrics over HTTPS and require a bearer token, checked with a TokenReview and SubjectAccessReview.
+  # Setting this to false serves plain HTTP that anyone who can reach the port can read.
+  secure: true
+  # -- Name of a `kubernetes.io/tls` Secret to serve instead of a self-signed certificate. Needs `secure`.
+  certSecretName: ""
+  serviceMonitor:
+    # -- Create a Prometheus Operator ServiceMonitor. Needs `metrics.enabled`.
+    enabled: false
+    # -- Scrape interval.
+    interval: 30s
+    # -- Extra labels on the ServiceMonitor, such as the ones a Prometheus selects on.
+    labels: {}
+    # -- TLS settings of the scrape, used when `metrics.certSecretName` is set, such as a `ca` and `serverName`.
+    # With the self-signed certificate, verification is skipped, as it cannot succeed.
+    tlsConfig: {}
+
+serviceAccount:
+  # -- Create the ServiceAccount. If false, `name` must name an existing one.
+  create: true
+  # -- Name of the ServiceAccount. Defaults to the full name of the release.
+  name: ""
+  # -- Annotations on the ServiceAccount. For workload identity set `azure.workload.identity/client-id`.
+  annotations: {}
+
+rbac:
+  # -- Create the ClusterRole, Roles and bindings.
+  create: true
+  # -- Limit where the controller may read Secrets and mint ServiceAccount tokens to these namespaces,
+  # plus the cluster resource namespace. Empty, the default, grants it in every namespace, so an
+  # AzureKeyVaultIssuer works wherever it is created. Limiting it is safer, as a compromised controller can then only
+  # read Secrets in those namespaces, but each new namespace that holds an AzureKeyVaultIssuer's credentials or
+  # ServiceAccount then needs a `helm upgrade`. Until then its issuer is not Ready, with a Forbidden error.
+  secretNamespaces: []
+
+approverRole:
+  # -- Let cert-manager's built-in approver approve CertificateRequests for the issuer kinds. It cannot without this, and
+  # no request is signed. Turn it off where approver-policy, or another approver, does the approving. Needs `rbac.create`.
+  enabled: true
+  # -- The ServiceAccount of cert-manager's approver.
+  serviceAccountName: cert-manager
+  # -- The namespace that ServiceAccount is in.
+  namespace: cert-manager
+
+# -- Annotations on the pods.
+podAnnotations: {}
+# -- Extra labels on the pods. For workload identity set `azure.workload.identity/use: "true"`.
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# -- Resource requests and limits. The memory limit also sets the Go memory limit.
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 128Mi
+
+# -- Priority class of the pods.
+priorityClassName: ""
+# -- Node selector of the pods.
+nodeSelector: {}
+# -- Tolerations of the pods.
+tolerations: []
+# -- Affinity of the pods.
+affinity: {}
+# -- Topology spread constraints of the pods.
+topologySpreadConstraints: []
+
+podDisruptionBudget:
+  # -- Create a PodDisruptionBudget. Only rendered when `replicaCount` is above 1.
+  enabled: true
+
+networkPolicy:
+  # -- Create a NetworkPolicy that limits ingress to the probe and metrics ports, and egress to DNS and HTTPS.
+  enabled: false
+  # -- Peers allowed to reach the metrics port, as NetworkPolicy `from` entries. Empty allows none.
+  metricsFrom: []
+  # -- Extra egress rules, such as for a cluster whose API server is not on port 443.
+  extraEgress: []
+
+# -- Extra command line arguments for the controller.
+extraArgs: []
+# -- Extra environment variables for the controller, such as `AZURE_TENANT_ID`.
+extraEnv: []

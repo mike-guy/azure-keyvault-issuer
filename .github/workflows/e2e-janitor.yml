@@ -1,0 +1,59 @@
+name: e2e janitor
+
+on:
+  schedule:
+    - cron: "43 10 * * *" # Daily, so a leak lasts at most two days.
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  # renovate: datasource=github-releases depName=jdx/mise
+  MISE_VERSION: 2026.11.3
+
+jobs:
+  janitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # A destroy must not run twice at once, and one must not be cut short.
+    concurrency:
+      group: e2e-janitor
+      cancel-in-progress: false
+    environment: e2e
+    permissions:
+      contents: read
+      id-token: write # Signs in to Azure with the job's OIDC token.
+    env:
+      ARM_USE_OIDC: "true"
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Mise
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          version: ${{ env.MISE_VERSION }}
+
+      - name: Sign In To Azure
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # As in e2e.yml: the job's OIDC token lasts five minutes, and a managed
+      # identity's tokens last 24 hours.
+      - name: Cache Azure Tokens
+        run: |
+          for scope in https://vault.azure.net/.default https://graph.microsoft.com/.default \
+            https://storage.azure.com/.default; do
+            az account get-access-token --scope "$scope" --output none
+          done
+
+      - name: Destroy Abandoned Runs
+        run: mise run e2e:janitor

@@ -1,0 +1,23 @@
+/bin/
+/cover.out
+# The e2e Azure state, which includes a client secret.
+/.e2e/
+
+# Personal mise overrides. .mise/locks is kept: it pins the dependencies of the
+# Python tools, and 'mise install --locked' fails without it.
+mise.local.toml
+
+# macOS
+.DS_Store
+
+# Terraform. The lock files are kept, and state and variable files are not.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+crash.log
+.terraform.tfstate.lock.info
+
+# Release workflow output.
+/dist/

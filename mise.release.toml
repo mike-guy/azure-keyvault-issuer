@@ -1,0 +1,41 @@
+# Tools only the release workflow needs, so a contributor's 'mise install'
+# doesn't fetch them. mise loads this file when MISE_ENV=release, which the
+# workflow sets. To see what a release would do: MISE_ENV=release mise run release:next-version
+[tools]
+"aqua:caarlos0/svu" = "3.4.4"
+"aqua:sigstore/cosign" = "3.1.4"
+
+[vars]
+chart_dir = "charts/azure-keyvault-issuer"
+# What the controller image is made from. A commit that changes none of these
+# does not change the image, so it does not make a release.
+app_paths = "--log.directory cmd --log.directory api --log.directory internal --log.directory go.mod --log.directory go.sum --log.directory Dockerfile"
+
+[tasks."release:current-version"]
+description = "Print the version of the latest app release, or v0.0.0 if there is none. Tags of other kinds, such as the chart's, are ignored"
+run = "svu current"
+
+[tasks."release:next-version"]
+description = "Print the version the next app release would get, from the conventional commits that changed the app. It is the current version if none calls for a release"
+run = "svu next --v0 {{vars.app_paths}}"
+
+[tasks."release:sbom"]
+description = "Write an SPDX SBOM of the image in IMAGE_REF to the file in SBOM_FILE"
+run = 'trivy image --format spdx-json --output "${SBOM_FILE:?not set}" "${IMAGE_REF:?not set}"'
+
+[tasks."release:chart-version"]
+description = "Print the version in the chart's Chart.yaml, which is the version of the next chart release"
+run = '''awk '/^version:/ { print $2 }' {{vars.chart_dir}}/Chart.yaml'''
+
+[tasks."release:chart-app-version"]
+description = "Print the controller version the chart runs, from appVersion in Chart.yaml"
+run = '''awk '/^appVersion:/ { gsub(/"/, "", $2); print $2 }' {{vars.chart_dir}}/Chart.yaml'''
+
+[tasks."release:chart-check"]
+description = "Run the chart checks a release needs. chart:check cannot be used, as it checks that the version has gone up since main, and a release is made from main"
+depends = ["chart:test", "chart:kubeconform", "chart:security", "chart:docs-check", "chart:crds-check"]
+run = "ct lint --config .ct/ct.yaml --all --check-version-increment=false"
+
+[tasks."release:chart-package"]
+description = "Package the chart into dist/"
+run = "helm package {{vars.chart_dir}} --destination dist"

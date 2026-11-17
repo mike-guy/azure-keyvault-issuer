@@ -1,0 +1,43 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "azure-keyvault-issuer.fullname" . }}
+  labels:
+    {{- include "azure-keyvault-issuer.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificaterequests"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificaterequests/status"]
+    verbs: ["patch"]
+  - apiGroups: ["azure-keyvault-issuer.mike-guy.github.io"]
+    resources: ["azurekeyvaultissuers", "azurekeyvaultclusterissuers"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["azure-keyvault-issuer.mike-guy.github.io"]
+    resources: ["azurekeyvaultissuers/status", "azurekeyvaultclusterissuers/status"]
+    verbs: ["patch"]
+  - apiGroups: ["events.k8s.io"]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  {{- if not .Values.rbac.secretNamespaces }}
+  # Credentials for the client certificate and client secret methods, read one Secret at a time.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+  # Tokens for workload identity.
+  - apiGroups: [""]
+    resources: ["serviceaccounts/token"]
+    verbs: ["create"]
+  {{- end }}
+  {{- if and .Values.metrics.enabled .Values.metrics.secure }}
+  # Checking a caller of the metrics endpoint.
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["subjectaccessreviews"]
+    verbs: ["create"]
+  {{- end }}
+{{- end }}
