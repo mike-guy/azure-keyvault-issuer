@@ -1,0 +1,61 @@
+suite: crds
+templates:
+  - templates/crds.yaml
+tests:
+  - it: installs both CRDs, labelled and kept on uninstall
+    release:
+      name: rel
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: CustomResourceDefinition
+      - equal:
+          path: metadata.name
+          value: azurekeyvaultclusterissuers.azure-keyvault-issuer.mike-guy.github.io
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: azurekeyvaultissuers.azure-keyvault-issuer.mike-guy.github.io
+        documentIndex: 1
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+      - equal:
+          path: metadata.labels["app.kubernetes.io/instance"]
+          value: rel
+      - equal:
+          path: metadata.labels["app.kubernetes.io/managed-by"]
+          value: Helm
+      - equal:
+          path: spec.group
+          value: azure-keyvault-issuer.mike-guy.github.io
+      - equal:
+          path: spec.scope
+          value: Cluster
+        documentIndex: 0
+      - equal:
+          path: spec.scope
+          value: Namespaced
+        documentIndex: 1
+
+  - it: keeps the annotations controller-gen wrote
+    asserts:
+      - exists:
+          path: metadata.annotations["controller-gen.kubebuilder.io/version"]
+
+  - it: lets the CRDs be deleted on uninstall when asked to
+    set:
+      crds.keep: false
+    asserts:
+      - hasDocuments:
+          count: 2
+      - notExists:
+          path: metadata.annotations["helm.sh/resource-policy"]
+
+  - it: installs no CRDs when crds.install is false
+    set:
+      crds.install: false
+    asserts:
+      - hasDocuments:
+          count: 0

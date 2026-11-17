@@ -1,0 +1,91 @@
+suite: networkpolicy
+templates:
+  - templates/networkpolicy.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: allows the probe port in, and DNS and HTTPS out
+    release:
+      name: rel
+    set:
+      networkPolicy.enabled: true
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: spec.podSelector.matchLabels
+          value:
+            app.kubernetes.io/name: azure-keyvault-issuer
+            app.kubernetes.io/instance: rel
+      - equal:
+          path: spec.policyTypes
+          value:
+            - Ingress
+            - Egress
+      - equal:
+          path: spec.ingress
+          value:
+            - ports:
+                - port: health
+                  protocol: TCP
+      - equal:
+          path: spec.egress
+          value:
+            - ports:
+                - port: 53
+                  protocol: UDP
+                - port: 53
+                  protocol: TCP
+            - ports:
+                - port: 443
+                  protocol: TCP
+
+  - it: allows metrics only from the listed peers
+    set:
+      networkPolicy.enabled: true
+      metrics.enabled: true
+      networkPolicy.metricsFrom:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+    asserts:
+      - equal:
+          path: spec.ingress[1]
+          value:
+            from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: monitoring
+            ports:
+              - port: metrics
+                protocol: TCP
+
+  - it: allows no one to reach the metrics port when no peers are listed
+    set:
+      networkPolicy.enabled: true
+      metrics.enabled: true
+    asserts:
+      - lengthEqual:
+          path: spec.ingress
+          count: 1
+
+  - it: appends extra egress rules
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.extraEgress:
+        - ports:
+            - port: 6443
+              protocol: TCP
+    asserts:
+      - lengthEqual:
+          path: spec.egress
+          count: 3
+      - equal:
+          path: spec.egress[2]
+          value:
+            ports:
+              - port: 6443
+                protocol: TCP

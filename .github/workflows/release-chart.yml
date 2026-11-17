@@ -1,0 +1,275 @@
+name: release chart
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Package and check everything, but tag, push and publish nothing.
+        type: boolean
+        default: false
+
+permissions: {}
+
+env:
+  # renovate: datasource=github-releases depName=jdx/mise
+  MISE_VERSION: 2026.11.3
+  # The release tools are only in mise.release.toml.
+  MISE_ENV: release
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      release: ${{ steps.next.outputs.release }}
+      version: ${{ steps.next.outputs.version }}
+      tag: ${{ steps.next.outputs.tag }}
+      app_version: ${{ steps.next.outputs.app_version }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Setup Mise
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          version: ${{ env.MISE_VERSION }}
+          cache: false
+
+      - name: Read Chart Version
+        id: next
+        run: |
+          version=$(mise run release:chart-version)
+          app_version=$(mise run release:chart-app-version)
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::The chart version must look like 1.2.3, not '$version'"
+            exit 1
+          fi
+          if ! printf '%s' "$app_version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::appVersion must look like 1.2.3, not '$app_version'"
+            exit 1
+          fi
+          tag="chart-v$version"
+          if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+            release=false
+          else
+            release=true
+          fi
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "app_version=$app_version"
+            echo "release=$release"
+          } >> "$GITHUB_OUTPUT"
+          if [ "$release" = true ]; then
+            echo "Releasing the chart **$tag**, which runs the controller **v$app_version**." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No release: $tag already exists. Raise the version in Chart.yaml to release the chart." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  release:
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: write # push the tag, and create and publish the GitHub Release
+      packages: write # push the chart
+      id-token: write # sign the chart and its build provenance
+      attestations: write # store the build provenance
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TAG: ${{ needs.version.outputs.tag }}
+      APP_VERSION: ${{ needs.version.outputs.app_version }}
+      DRY_RUN: ${{ inputs.dry_run || false }}
+      IMAGE: ghcr.io/${{ github.repository }}
+      # A chart is stored in the registry as an artifact of its own, under
+      # charts/ so that it does not share a name with the image.
+      CHART: ghcr.io/${{ github.repository_owner }}/charts/azure-keyvault-issuer
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # No caches in the release job (Go or mise), so nothing from another run
+      # can reach a published build.
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Setup Mise
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          version: ${{ env.MISE_VERSION }}
+          cache: false
+
+      # The chart runs the controller image of its appVersion, so that image
+      # has to be a release: published, and signed by the release workflow. A
+      # dry run only warns, so the chart can be tried before there is one.
+      - name: Check The Controller Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          problem=
+          if ! gh release view "v$APP_VERSION" --json isDraft --jq 'select(.isDraft | not)' | grep -q .; then
+            problem="There is no published release v$APP_VERSION of the controller"
+          elif ! docker buildx imagetools inspect "$IMAGE:$APP_VERSION" > /dev/null 2>&1; then
+            problem="The image $IMAGE:$APP_VERSION does not exist"
+          elif ! gh attestation verify "oci://$IMAGE:$APP_VERSION" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-app.yml" > /dev/null 2>&1; then
+            problem="The image $IMAGE:$APP_VERSION was not built by the release-app workflow"
+          fi
+          if [ -n "$problem" ]; then
+            if [ "$DRY_RUN" = true ]; then
+              echo "::warning::$problem"
+            else
+              echo "::error::$problem. Release the controller first, or point appVersion in Chart.yaml at a release."
+              exit 1
+            fi
+          fi
+
+      - name: Check Chart
+        run: mise run release:chart-check
+
+      - name: Tag Release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          remote="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # A re-run after a failure later in this job finds the tag already
+          # pushed: reuse it if it's on this commit, and stop if it isn't.
+          if git fetch --quiet "$remote" "refs/tags/$TAG:refs/tags/$TAG" 2> /dev/null; then
+            if [ "$(git rev-parse "$TAG^{commit}")" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::$TAG already exists on a different commit"
+              exit 1
+            fi
+            echo "$TAG is already tagged on this commit."
+            exit 0
+          fi
+          git tag --annotate "$TAG" --message "$TAG"
+          if [ "$DRY_RUN" = true ]; then
+            echo "Dry run: tagged $TAG locally only."
+          else
+            git push "$remote" "refs/tags/$TAG"
+          fi
+
+      - name: Package Chart
+        run: mise run release:chart-package
+
+      - name: Sign In To GitHub Container Registry
+        if: env.DRY_RUN != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      # A re-run finds the chart already pushed, and reuses it: packaging again
+      # may not give the same bytes, and a tag can be moved. A manifest's digest
+      # is the hash of its bytes.
+      - name: Push Chart
+        id: push
+        if: env.DRY_RUN != 'true'
+        run: |
+          # Helm reads the same registry login as Docker, which cosign also needs.
+          export HELM_REGISTRY_CONFIG="$HOME/.docker/config.json"
+          if raw=$(docker buildx imagetools inspect --raw "$CHART:$VERSION" 2> /dev/null); then
+            echo "$CHART:$VERSION is already pushed, so it is reused."
+            digest="sha256:$(printf '%s' "$raw" | sha256sum | cut -d ' ' -f 1)"
+          else
+            helm push "dist/azure-keyvault-issuer-$VERSION.tgz" "oci://${CHART%/azure-keyvault-issuer}" 2>&1 | tee "$RUNNER_TEMP/push.log"
+            digest=$(sed -n 's/^Digest: //p' "$RUNNER_TEMP/push.log")
+          fi
+          if [ -z "$digest" ]; then
+            echo "::error::Could not work out the digest of the pushed chart"
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Attest Build Provenance
+        id: attest
+        if: env.DRY_RUN != 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.CHART }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Sign Chart
+        if: env.DRY_RUN != 'true'
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: mise exec -- cosign sign --yes "$CHART@$DIGEST"
+
+      # The release stays a draft until it is published below, so it can take
+      # assets. A re-run finds the draft and adds to it. It is not marked as
+      # the latest release, which is the controller's.
+      - name: Create Draft Release
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          if view=$(gh release view "$TAG" --json isDraft --jq .isDraft 2> /dev/null); then
+            if [ "$view" != true ]; then
+              echo "::error::$TAG is already published, and cannot change"
+              exit 1
+            fi
+          else
+            previous=$(git tag --list 'chart-v*' --sort=-v:refname | grep -vx "$TAG" | head -n 1 || true)
+            notes_args=()
+            if [ -n "$previous" ]; then
+              notes_args=(--notes-start-tag "$previous")
+            fi
+            notes="Helm chart $VERSION, which runs the controller [v$APP_VERSION](https://github.com/$GITHUB_REPOSITORY/releases/tag/v$APP_VERSION).
+
+          \`helm install azure-keyvault-issuer oci://$CHART --version $VERSION\`
+
+          Chart digest: \`$DIGEST\`"
+            gh release create "$TAG" --draft --verify-tag --latest=false --title "Chart $VERSION" \
+              --notes "$notes" --generate-notes "${notes_args[@]}"
+          fi
+          cp "$BUNDLE" "dist/azure-keyvault-issuer-${VERSION}.sigstore.json"
+          gh release upload "$TAG" --clobber \
+            "dist/azure-keyvault-issuer-$VERSION.tgz" \
+            "dist/azure-keyvault-issuer-${VERSION}.sigstore.json"
+          {
+            echo "Chart: \`$CHART@$DIGEST\`"
+            echo
+            echo "Verify it with \`gh attestation verify oci://$CHART:$VERSION --repo $GITHUB_REPOSITORY\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Publishing makes the release immutable: its assets and tag can no
+      # longer change. The notes can, so edit them afterwards if need be.
+      - name: Publish Release
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$TAG" --draft=false --latest=false
+
+      - name: Upload Dry Run Artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: env.DRY_RUN == 'true'
+        with:
+          name: dry-run-dist
+          path: dist/
+          retention-days: 7

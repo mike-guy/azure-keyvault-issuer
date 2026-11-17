@@ -1,0 +1,104 @@
+{{ template "chart.header" . }}
+{{ template "chart.badgesSection" . }}
+
+{{ template "chart.description" . }}
+
+The controller signs cert-manager CertificateRequests with a CA held in Azure Key Vault. This page covers the chart. For the issuer API, see the [project README](https://github.com/mike-guy/azure-keyvault-issuer#readme), the [configuration guide](https://github.com/mike-guy/azure-keyvault-issuer/blob/main/docs/configuration.md) and the [examples](https://github.com/mike-guy/azure-keyvault-issuer/blob/main/docs/examples.md).
+
+## Installing
+
+[cert-manager](https://cert-manager.io/docs/installation/) must already be installed.
+
+```console
+helm install azure-keyvault-issuer oci://ghcr.io/mike-guy/charts/azure-keyvault-issuer \
+  --version {{ template "chart.version" . }} \
+  --namespace azure-keyvault-issuer --create-namespace
+```
+
+The chart and the controller are versioned separately. The chart's `appVersion`, currently `{{ template "chart.appVersion" . }}`, is the controller image it deploys unless `image.tag` or `image.digest` says otherwise. Both are signed. See [SECURITY.md](https://github.com/mike-guy/azure-keyvault-issuer/blob/main/SECURITY.md#verifying-a-release) for how to verify them.
+
+A typical `values.yaml` uses workload identity, limits where Secrets are read, and turns on metrics:
+
+```yaml
+serviceAccount:
+  annotations:
+    azure.workload.identity/client-id: 00000000-0000-0000-0000-000000000000
+podLabels:
+  azure.workload.identity/use: "true"
+rbac:
+  secretNamespaces:
+    - team-a
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+```
+
+The controller runs under the `restricted` Pod Security Standard, so the namespace can enforce it:
+
+```console
+kubectl label namespace azure-keyvault-issuer pod-security.kubernetes.io/enforce=restricted
+```
+
+## Authenticating to Azure
+
+Prefer workload identity. Federate an Entra application or user-assigned managed identity with the controller's ServiceAccount, then:
+
+```yaml
+serviceAccount:
+  annotations:
+    azure.workload.identity/client-id: 00000000-0000-0000-0000-000000000000
+podLabels:
+  azure.workload.identity/use: "true"
+```
+
+The [Azure Workload Identity webhook](https://azure.github.io/azure-workload-identity/docs/) then injects the environment variables the controller's ambient credential reads, including `AZURE_TENANT_ID`. An AzureKeyVaultClusterIssuer with no `auth` block uses this identity. Issuers that name their own ServiceAccount, client certificate or client secret do not need it.
+
+## Access to Secrets and ServiceAccounts
+
+An AzureKeyVaultIssuer reads its credential Secret, or mints a token for its ServiceAccount, in its own namespace. So by default the controller may `get` Secrets and `create` ServiceAccount tokens in every namespace, which is how cert-manager and other external issuers work. It can only `get` a Secret by name, and never list or watch them. A compromised controller could still read any Secret whose name it can guess.
+
+To limit that, list the namespaces:
+
+```yaml
+rbac:
+  secretNamespaces:
+    - team-a
+    - team-b
+```
+
+The access then goes to those namespaces and the cluster resource namespace, which is the release namespace unless `clusterResourceNamespace` says otherwise. The cost is that each new namespace that holds an AzureKeyVaultIssuer's credentials or ServiceAccount needs a `helm upgrade` to add it. Until then that issuer is not `Ready`, with a Forbidden error in its condition.
+
+If you only use AzureKeyVaultClusterIssuers, their credentials are in the cluster resource namespace, so list that namespace to give the controller access there and nowhere else. An empty list means every namespace, so it cannot be used to mean none.
+
+## Approving requests
+
+cert-manager only signs a CertificateRequest once it is approved, and its built-in approver may only approve requests for the signers it has been told of. The chart grants it that for both issuer kinds, with a ClusterRole that allows `approve` on `azurekeyvaultissuers.azure-keyvault-issuer.mike-guy.github.io/*` and `azurekeyvaultclusterissuers.azure-keyvault-issuer.mike-guy.github.io/*`, and a binding to cert-manager's ServiceAccount. Without it, requests stay unapproved and are never signed, and the controller logs nothing, as it never sees them.
+
+If cert-manager runs under another ServiceAccount or in another namespace, set `approverRole.serviceAccountName` and `approverRole.namespace`. If [approver-policy](https://cert-manager.io/docs/policy/approval/approver-policy/) or another approver does the approving, set `approverRole.enabled=false` and grant that approver the same `approve` rule, as it needs it too. It is not created when `rbac.create` is false.
+
+## CustomResourceDefinitions
+
+The chart installs the CRDs, so `helm upgrade` updates them. They are annotated `helm.sh/resource-policy: keep`, so `helm uninstall` leaves them, and every issuer, in place. Delete them by hand if you want them gone. Set `crds.install=false` if you manage them yourself.
+
+## Metrics
+
+Metrics are off by default. With `metrics.enabled=true` they are served over HTTPS and need a bearer token, so whatever scrapes them needs this role:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: azure-keyvault-issuer-metrics-reader
+rules:
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+```
+
+`metrics.serviceMonitor.enabled=true` creates a Prometheus Operator ServiceMonitor. See the project's [metrics documentation](https://github.com/mike-guy/azure-keyvault-issuer/blob/main/docs/metrics.md) for using your own certificate.
+
+## Network policy
+
+`networkPolicy.enabled=true` allows ingress only to the probe port, and to the metrics port from `networkPolicy.metricsFrom`. Egress is limited to DNS and port 443, which covers the API server, Microsoft Entra and Key Vault, as a NetworkPolicy cannot name hosts. Add `networkPolicy.extraEgress` if your API server is on another port.
+
+{{ template "chart.valuesSection" . }}

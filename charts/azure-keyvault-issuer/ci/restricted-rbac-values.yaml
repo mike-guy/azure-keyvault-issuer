@@ -1,0 +1,7 @@
+clusterResourceNamespace: issuers
+rbac:
+  secretNamespaces:
+    - team-a
+    - team-b
+image:
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

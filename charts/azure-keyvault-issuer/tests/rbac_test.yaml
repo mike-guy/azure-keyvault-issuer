@@ -1,0 +1,250 @@
+suite: rbac
+templates:
+  - templates/clusterrole.yaml
+  - templates/clusterrolebinding.yaml
+  - templates/role.yaml
+  - templates/secrets-roles.yaml
+tests:
+  - it: grants exactly the ClusterRole rules by default
+    template: templates/clusterrole.yaml
+    release:
+      name: rel
+    asserts:
+      - isKind:
+          of: ClusterRole
+      - equal:
+          path: metadata.name
+          value: rel-azure-keyvault-issuer
+      - equal:
+          path: rules
+          value:
+            - apiGroups: ["cert-manager.io"]
+              resources: ["certificaterequests"]
+              verbs: ["get", "list", "watch"]
+            - apiGroups: ["cert-manager.io"]
+              resources: ["certificaterequests/status"]
+              verbs: ["patch"]
+            - apiGroups: ["azure-keyvault-issuer.mike-guy.github.io"]
+              resources: ["azurekeyvaultissuers", "azurekeyvaultclusterissuers"]
+              verbs: ["get", "list", "watch"]
+            - apiGroups: ["azure-keyvault-issuer.mike-guy.github.io"]
+              resources: ["azurekeyvaultissuers/status", "azurekeyvaultclusterissuers/status"]
+              verbs: ["patch"]
+            - apiGroups: ["events.k8s.io"]
+              resources: ["events"]
+              verbs: ["create", "patch"]
+            - apiGroups: [""]
+              resources: ["secrets"]
+              verbs: ["get"]
+            - apiGroups: [""]
+              resources: ["serviceaccounts/token"]
+              verbs: ["create"]
+
+  - it: adds the token and access review rules for secure metrics
+    template: templates/clusterrole.yaml
+    set:
+      metrics.enabled: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["authentication.k8s.io"]
+            resources: ["tokenreviews"]
+            verbs: ["create"]
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["authorization.k8s.io"]
+            resources: ["subjectaccessreviews"]
+            verbs: ["create"]
+
+  - it: needs no access reviews for plain HTTP metrics
+    template: templates/clusterrole.yaml
+    set:
+      metrics.enabled: true
+      metrics.secure: false
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: ["authentication.k8s.io"]
+            resources: ["tokenreviews"]
+            verbs: ["create"]
+
+  - it: moves the Secret and token rules out of the ClusterRole when namespaces are listed
+    template: templates/clusterrole.yaml
+    set:
+      rbac.secretNamespaces:
+        - team-a
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["secrets"]
+            verbs: ["get"]
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["serviceaccounts/token"]
+            verbs: ["create"]
+      - lengthEqual:
+          path: rules
+          count: 5
+
+  - it: binds the ClusterRole to the service account in the release namespace
+    template: templates/clusterrolebinding.yaml
+    release:
+      name: rel
+      namespace: ns
+    asserts:
+      - isKind:
+          of: ClusterRoleBinding
+      - equal:
+          path: roleRef
+          value:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: rel-azure-keyvault-issuer
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: rel-azure-keyvault-issuer
+              namespace: ns
+
+  - it: binds to an existing service account
+    template: templates/clusterrolebinding.yaml
+    set:
+      serviceAccount.create: false
+      serviceAccount.name: existing
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: existing
+
+  # Leader election
+  - it: grants leader election only in the release namespace
+    template: templates/role.yaml
+    documentIndex: 0
+    release:
+      name: rel
+      namespace: ns
+    asserts:
+      - isKind:
+          of: Role
+      - equal:
+          path: metadata.namespace
+          value: ns
+      - equal:
+          path: rules
+          value:
+            - apiGroups: ["coordination.k8s.io"]
+              resources: ["leases"]
+              verbs: ["get", "create", "update"]
+            - apiGroups: [""]
+              resources: ["events"]
+              verbs: ["create", "patch"]
+
+  - it: binds the leader election Role to the service account
+    template: templates/role.yaml
+    documentIndex: 1
+    release:
+      name: rel
+      namespace: ns
+    asserts:
+      - isKind:
+          of: RoleBinding
+      - equal:
+          path: roleRef.name
+          value: rel-azure-keyvault-issuer-leader-election
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: rel-azure-keyvault-issuer
+              namespace: ns
+
+  # Scoped access to credentials
+  - it: renders no per-namespace Roles by default
+    template: templates/secrets-roles.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: grants Secret and token access in each listed namespace and the cluster resource namespace
+    template: templates/secrets-roles.yaml
+    release:
+      name: rel
+      namespace: ns
+    set:
+      clusterResourceNamespace: issuers
+      rbac.secretNamespaces:
+        - team-b
+        - team-a
+    asserts:
+      - hasDocuments:
+          count: 6
+      - isKind:
+          of: Role
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: issuers
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: team-a
+        documentIndex: 2
+      - equal:
+          path: metadata.namespace
+          value: team-b
+        documentIndex: 4
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: ["secrets"]
+              verbs: ["get"]
+            - apiGroups: [""]
+              resources: ["serviceaccounts/token"]
+              verbs: ["create"]
+        documentIndex: 2
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: rel-azure-keyvault-issuer
+              namespace: ns
+        documentIndex: 3
+
+  - it: does not repeat a namespace that is also the cluster resource namespace
+    template: templates/secrets-roles.yaml
+    release:
+      namespace: ns
+    set:
+      rbac.secretNamespaces:
+        - ns
+    asserts:
+      - hasDocuments:
+          count: 2
+
+  - it: rejects a namespace that is not a valid name
+    template: templates/secrets-roles.yaml
+    set:
+      rbac.secretNamespaces:
+        - Not_Valid
+    asserts:
+      - failedTemplate:
+          errorPattern: secretNamespaces
+
+  # rbac.create
+  - it: renders no RBAC when rbac.create is false
+    set:
+      rbac.create: false
+      rbac.secretNamespaces:
+        - team-a
+    asserts:
+      - hasDocuments:
+          count: 0

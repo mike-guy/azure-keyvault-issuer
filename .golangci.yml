@@ -1,0 +1,20 @@
+version: "2"
+
+run:
+  # The e2e suite is behind this tag, so it is invisible to the linter without it.
+  build-tags:
+    - e2e
+
+linters:
+  default: standard
+  enable:
+    - errorlint
+    - revive
+  settings:
+    revive:
+      rules:
+        - name: error-strings
+        - name: error-naming
+        - name: errorf
+  exclusions:
+    generated: lax

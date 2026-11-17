@@ -1,0 +1,32 @@
+apiVersion: v2
+name: azure-keyvault-issuer
+description: A cert-manager external issuer that signs certificates with a CA held in Azure Key Vault
+type: application
+kubeVersion: ">=1.35.0-0"
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/mike-guy/azure-keyvault-issuer
+sources:
+  - https://github.com/mike-guy/azure-keyvault-issuer
+keywords:
+  - cert-manager
+  - external-issuer
+  - azure
+  - key-vault
+  - certificates
+maintainers:
+  - name: Mike Guy
+    url: https://github.com/mike-guy
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/crds: |
+    - kind: AzureKeyVaultIssuer
+      version: v1alpha1
+      name: azurekeyvaultissuers.azure-keyvault-issuer.mike-guy.github.io
+      displayName: Azure Key Vault Issuer
+      description: A namespaced issuer that signs with a CA held in Azure Key Vault
+    - kind: AzureKeyVaultClusterIssuer
+      version: v1alpha1
+      name: azurekeyvaultclusterissuers.azure-keyvault-issuer.mike-guy.github.io
+      displayName: Azure Key Vault Cluster Issuer
+      description: A cluster scoped issuer that signs with a CA held in Azure Key Vault

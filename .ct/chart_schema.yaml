@@ -1,0 +1,17 @@
+name: str()
+apiVersion: str()
+version: str()
+type: str(required=False)
+appVersion: any(str(), num(), required=False)
+description: str(required=False)
+home: str(required=False)
+kubeVersion: str(required=False)
+keywords: list(str(), required=False)
+sources: list(str(), required=False)
+maintainers: list(include('maintainer'), required=False)
+annotations: map(str(), str(), required=False)
+---
+maintainer:
+  name: str()
+  email: str(required=False)
+  url: str(required=False)

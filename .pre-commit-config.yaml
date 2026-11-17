@@ -1,0 +1,141 @@
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # The generated files are written by their generators, so they're never
+      # rewritten here.
+      - id: trailing-whitespace
+        name: trim trailing whitespace
+        args: [--markdown-linebreak-ext=md]
+        exclude: ^(api/.*/zz_generated\..*|charts/[^/]+/(files/crds/.*|README\.md))$
+
+      - id: end-of-file-fixer
+        name: fix end of files
+        exclude: ^(api/.*/zz_generated\..*|charts/[^/]+/(files/crds/.*|README\.md))$
+
+      - id: mixed-line-ending
+        name: fix mixed line endings
+        args: [--fix=lf]
+
+      - id: check-yaml
+        name: check yaml
+        args: [--allow-multiple-documents]
+        # Helm templates hold Go template actions, which aren't valid YAML.
+        exclude: ^charts/[^/]+/templates/
+
+      - id: check-merge-conflict
+        name: check for merge conflicts
+
+      - id: check-added-large-files
+        name: check for added large files
+
+      - id: check-case-conflict
+        name: check for case conflicts
+
+      - id: detect-private-key
+        name: detect private keys
+
+  - repo: https://github.com/renovatebot/pre-commit-hooks
+    rev: 44.184.0
+    hooks:
+      - id: renovate-config-validator
+        name: renovate config validator
+        args: [--strict]
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
+    hooks:
+      - id: conventional-pre-commit
+        name: conventional commit
+        stages: [commit-msg]
+        args: [build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test]
+
+  - repo: local
+    hooks:
+      - id: gitleaks
+        name: gitleaks
+        entry: mise run secrets:staged
+        language: system
+        pass_filenames: false
+
+      - id: go-fmt
+        name: go fmt
+        entry: mise run fmt
+        language: system
+        pass_filenames: false
+        files: \.go$
+
+      - id: go-tidy
+        name: go mod tidy
+        entry: mise run tidy:check
+        language: system
+        pass_filenames: false
+        files: (^|/)go\.(mod|sum)$
+
+      - id: go-lint
+        name: golangci-lint
+        entry: mise run lint
+        language: system
+        pass_filenames: false
+        files: \.go$|^\.golangci\.yml$
+
+      - id: go-generate
+        name: controller-gen
+        entry: "mise run generate ::: manifests"
+        language: system
+        pass_filenames: false
+        files: ^api/.*\.go$
+
+      - id: chart-docs
+        name: helm-docs
+        entry: mise run chart:docs
+        language: system
+        pass_filenames: false
+        files: ^charts/[^/]+/(values\.yaml|Chart\.yaml|README\.md\.gotmpl)$
+
+      - id: chart-test
+        name: helm unittest
+        entry: mise run chart:test
+        language: system
+        pass_filenames: false
+        files: ^charts/
+
+      - id: actions-lint
+        name: actionlint and zizmor
+        entry: mise run actions:lint
+        language: system
+        pass_filenames: false
+        files: ^\.github/workflows/
+
+      - id: tf-fmt
+        name: terraform fmt
+        entry: mise run tf:fmt
+        language: system
+        pass_filenames: false
+        files: ^test/infra/.*\.tf$
+
+      - id: tf-lint
+        name: tflint
+        entry: mise run tf:lint
+        language: system
+        pass_filenames: false
+        files: ^test/infra/.*\.tf$
+
+      - id: go-test
+        name: go test
+        entry: mise run test
+        language: system
+        pass_filenames: false
+        files: \.go$|(^|/)go\.(mod|sum)$
+        stages: [pre-push]
+
+      - id: chart-check
+        name: chart checks
+        entry: mise run chart:check
+        language: system
+        pass_filenames: false
+        files: ^charts/
+        stages: [pre-push]

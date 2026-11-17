@@ -1,0 +1,8 @@
+serviceAccount:
+  annotations:
+    azure.workload.identity/client-id: 00000000-0000-0000-0000-000000000000
+podLabels:
+  azure.workload.identity/use: "true"
+extraEnv:
+  - name: AZURE_TENANT_ID
+    value: 00000000-0000-0000-0000-000000000000

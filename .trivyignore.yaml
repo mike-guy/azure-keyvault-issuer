@@ -1,0 +1,9 @@
+misconfigurations:
+  - id: KSV-0041
+    paths:
+      - templates/clusterrole.yaml
+    statement: >-
+      By default the controller may get Secrets and create ServiceAccount tokens in every namespace, because an
+      AzureKeyVaultIssuer may keep its credentials in its own namespace. It can only get a Secret by name, never list
+      or watch. rbac.secretNamespaces limits this, and the restricted-rbac scenario checks that it does not trip
+      this rule.

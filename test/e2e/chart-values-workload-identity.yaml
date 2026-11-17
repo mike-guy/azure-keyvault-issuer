@@ -1,0 +1,6 @@
+# Added to chart-values.yaml when the kind cluster has workload identity
+# (e2e:kind:workload-identity:install), so the controller has the managed identity
+# that an AzureKeyVaultClusterIssuer with no auth block signs in with. The
+# client ID annotation is set by e2e:kind:chart:install and e2e:aks:chart:install, as it is made by Terraform.
+podLabels:
+  azure.workload.identity/use: "true"

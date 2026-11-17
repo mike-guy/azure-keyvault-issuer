@@ -1,0 +1,249 @@
+name: release app
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, such as v0.1.0. Leave empty to work it out from the commits.
+        type: string
+        required: false
+      dry_run:
+        description: Build everything, but tag and publish nothing.
+        type: boolean
+        default: false
+
+permissions: {}
+
+env:
+  # renovate: datasource=github-releases depName=jdx/mise
+  MISE_VERSION: 2026.11.3
+  # The release tools are only in mise.release.toml.
+  MISE_ENV: release
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      release: ${{ steps.next.outputs.release }}
+      version: ${{ steps.next.outputs.version }}
+      previous: ${{ steps.next.outputs.previous }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Setup Mise
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          version: ${{ env.MISE_VERSION }}
+          cache: false
+
+      - name: Determine Next Version
+        id: next
+        env:
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          current=$(mise run release:current-version)
+          if [ -n "$REQUESTED" ]; then
+            if ! printf '%s' "$REQUESTED" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error::version must look like v1.2.3, not '$REQUESTED'"
+              exit 1
+            fi
+            next=$REQUESTED
+          else
+            next=$(mise run release:next-version)
+          fi
+          if git rev-parse -q --verify "refs/tags/$next" > /dev/null; then
+            release=false
+          else
+            release=true
+          fi
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          if [ "$current" != "v0.0.0" ]; then
+            echo "previous=$current" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$release" = true ]; then
+            echo "Releasing **$next** (the latest is $current)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No release: no commit since $current changed the app in a way that calls for a new version." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  release:
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: write # push the tag, and create and publish the GitHub Release
+      packages: write # push the image
+      id-token: write # sign the image and its build provenance
+      attestations: write # store the build provenance
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      PREVIOUS: ${{ needs.version.outputs.previous }}
+      DRY_RUN: ${{ inputs.dry_run || false }}
+      IMAGE: ghcr.io/${{ github.repository }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # No caches in the release job (Go or mise), so nothing from another run
+      # can reach a published build.
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Setup Mise
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          version: ${{ env.MISE_VERSION }}
+          cache: false
+
+      - name: Tag Release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          remote="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # A re-run after a failure later in this job finds the tag already
+          # pushed: reuse it if it's on this commit, and stop if it isn't.
+          if git fetch --quiet "$remote" "refs/tags/$VERSION:refs/tags/$VERSION" 2> /dev/null; then
+            if [ "$(git rev-parse "$VERSION^{commit}")" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::$VERSION already exists on a different commit"
+              exit 1
+            fi
+            echo "$VERSION is already tagged on this commit."
+            exit 0
+          fi
+          git tag --annotate "$VERSION" --message "$VERSION"
+          if [ "$DRY_RUN" = true ]; then
+            echo "Dry run: tagged $VERSION locally only."
+          else
+            git push "$remote" "refs/tags/$VERSION"
+          fi
+
+      - name: Sign In To GitHub Container Registry
+        if: env.DRY_RUN != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      # Building for two architectures needs a builder that can, which the
+      # default one cannot. The Dockerfile cross-compiles, so no emulation.
+      - name: Create Builder
+        run: docker buildx create --use --driver docker-container
+
+      - name: Build And Push Image
+        id: image
+        run: |
+          mkdir -p dist
+          tag="$IMAGE:${VERSION#v}"
+          if [ "$DRY_RUN" = true ]; then
+            # Builds for both architectures to prove they build, and keeps one
+            # to scan for the SBOM, as a build for two cannot be loaded.
+            docker buildx build --platform linux/amd64,linux/arm64 \
+              --build-arg "VERSION=${VERSION#v}" --provenance=false --sbom=false .
+            docker buildx build --platform linux/amd64 --load \
+              --build-arg "VERSION=${VERSION#v}" --provenance=false --sbom=false --tag "$tag" .
+            echo "ref=$tag" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if digest=$(docker buildx imagetools inspect "$tag" --format '{{.Manifest.Digest}}' 2> /dev/null); then
+            echo "$tag is already pushed, so it is reused."
+          else
+            docker buildx build --platform linux/amd64,linux/arm64 \
+              --build-arg "VERSION=${VERSION#v}" --provenance=false --sbom=false \
+              --tag "$tag" --push --metadata-file dist/image-metadata.json .
+            digest=$(jq -r '."containerimage.digest"' dist/image-metadata.json)
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "ref=$IMAGE@$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Create SBOM
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+          SBOM_FILE: dist/azure-keyvault-issuer_${{ needs.version.outputs.version }}.sbom.spdx.json
+        run: mise run release:sbom
+
+      - name: Attest Build Provenance
+        id: attest
+        if: env.DRY_RUN != 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+
+      - name: Sign Image
+        if: env.DRY_RUN != 'true'
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+        run: mise exec -- cosign sign --yes "$IMAGE_REF"
+
+      - name: Create Draft Release
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+        run: |
+          if view=$(gh release view "$VERSION" --json isDraft --jq .isDraft 2> /dev/null); then
+            if [ "$view" != true ]; then
+              echo "::error::$VERSION is already published, and cannot change"
+              exit 1
+            fi
+          else
+            notes_args=()
+            if [ -n "$PREVIOUS" ]; then
+              notes_args=(--notes-start-tag "$PREVIOUS")
+            fi
+            gh release create "$VERSION" --draft --verify-tag --title "$VERSION" \
+              --generate-notes "${notes_args[@]}"
+          fi
+          cp "$BUNDLE" "dist/azure-keyvault-issuer_${VERSION}.sigstore.json"
+          gh release upload "$VERSION" --clobber \
+            "dist/azure-keyvault-issuer_${VERSION}.sbom.spdx.json" \
+            "dist/azure-keyvault-issuer_${VERSION}.sigstore.json"
+          {
+            echo "Image: \`$IMAGE_REF\`"
+            echo
+            echo "Verify it with \`gh attestation verify oci://$IMAGE:${VERSION#v} --repo $GITHUB_REPOSITORY\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Publishing makes the release immutable: its assets and tag can no
+      # longer change. The notes can, so edit them afterwards if need be.
+      - name: Publish Release
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$VERSION" --draft=false --latest
+
+      - name: Upload Dry Run Artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: env.DRY_RUN == 'true'
+        with:
+          name: dry-run-dist
+          path: dist/
+          retention-days: 7

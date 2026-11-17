@@ -1,0 +1,11 @@
+{{- if .Values.crds.install }}
+{{- range $path, $_ := .Files.Glob "files/crds/*.yaml" }}
+{{- $crd := $.Files.Get $path | fromYaml }}
+{{- $_ := set $crd.metadata "labels" (include "azure-keyvault-issuer.labels" $ | fromYaml) }}
+{{- if $.Values.crds.keep }}
+{{- $_ := set $crd.metadata.annotations "helm.sh/resource-policy" "keep" }}
+{{- end }}
+---
+{{ toYaml $crd }}
+{{- end }}
+{{- end }}

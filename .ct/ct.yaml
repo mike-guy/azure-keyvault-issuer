@@ -1,0 +1,9 @@
+chart-dirs:
+  - charts
+chart-yaml-schema: .ct/chart_schema.yaml
+lint-conf: .ct/lintconf.yaml
+target-branch: main
+helm-lint-extra-args: --strict
+# The chart has one maintainer, whose GitHub account ct would otherwise look up.
+validate-maintainers: false
+check-version-increment: true
