@@ -1,5 +1,12 @@
 # azure-keyvault-issuer
 
+<p align="center">
+  <a href="https://github.com/mike-guy/azure-keyvault-issuer/releases/latest"><img src="https://img.shields.io/github/v/release/mike-guy/azure-keyvault-issuer?sort=semver" alt="Latest release"></a>
+  <a href="https://github.com/mike-guy/azure-keyvault-issuer/actions/workflows/security.yml"><img src="https://github.com/mike-guy/azure-keyvault-issuer/actions/workflows/security.yml/badge.svg?branch=main" alt="Security checks"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/mike-guy/azure-keyvault-issuer"><img src="https://api.scorecard.dev/projects/github.com/mike-guy/azure-keyvault-issuer/badge" alt="OpenSSF Scorecard"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/mike-guy/azure-keyvault-issuer" alt="Licence: Apache 2.0"></a>
+</p>
+
 An [external issuer](https://cert-manager.io/docs/contributing/external-issuers) for [cert-manager](https://cert-manager.io) that signs certificates with a CA held in Azure Key Vault.
 
 The CA's private key should never leave the vault. The controller builds each certificate itself and asks Key Vault to sign the digest. It is built on cert-manager's [issuer-lib](https://github.com/cert-manager/issuer-lib), and its API is `v1alpha1`.
