@@ -1,109 +1,146 @@
-// Renovate keeps every pinned version up to date: Go modules and the Go
-// toolchain (go.mod), development tools (mise.toml, mise.ci.toml,
-// mise.release.toml and their lockfiles), GitHub Actions, pre-commit hooks,
-// Terraform providers, the Docker base images, and mise's own version in the
-// workflows. It runs weekly from .github/workflows/renovate.yml. See
-// CONTRIBUTING.md.
-//
-// It does not touch Chart.yaml: the chart's version and appVersion are bumped
-// by hand, because the chart is released on its own schedule.
 {
-  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
   extends: [
-    "config:best-practices",
-    ":enablePreCommit",
-    // MISE_VERSION lines in workflows, under a '# renovate:' comment.
-    "customManagers:githubActionsVersions",
+    'config:best-practices',
+    ':enablePreCommit',
+    'customManagers:githubActionsVersions',
   ],
-  dependencyDashboard: true,
-  labels: ["dependencies"],
-
-  // Nothing merges by itself: every update waits for a person.
+  dependencyDashboard: {
+    enabled: true,
+  },
+  labels: [
+    'dependencies',
+  ],
   automerge: false,
-
-  // Run 'go mod tidy' after each Go module update, and rewrite the import paths
-  // in the code when a major update changes them (/v7 to /v9). Without that, the
-  // new module is unused and 'go mod tidy' drops it again.
-  postUpdateOptions: ["gomodTidy", "gomodUpdateImportPaths"],
-
-  // Conventional commits. chore(deps) doesn't call for a release; fix(deps)
-  // (below) makes the next app release at least a patch.
-  semanticCommits: "enabled",
-  semanticCommitType: "chore",
-  semanticCommitScope: "deps",
-
-  // Security fixes are raised straight away, whatever the grouping.
+  postUpdateOptions: [
+    'gomodTidy',
+    'gomodUpdateImportPaths',
+  ],
+  semanticCommits: 'enabled',
+  semanticCommitType: 'chore',
+  semanticCommitScope: 'deps',
   vulnerabilityAlerts: {
-    labels: ["dependencies", "security"],
+    labels: [
+      'dependencies',
+      'security',
+    ],
   },
   osvVulnerabilityAlerts: true,
-
   customManagers: [
     {
       description: "Versions in mise.toml under a '# renovate: datasource=... depName=...' comment: the cert-manager and workload identity webhook charts the e2e suite installs",
-      customType: "regex",
-      managerFilePatterns: ["/(^|/)mise\\.toml$/"],
+      customType: 'regex',
+      managerFilePatterns: [
+        '/(^|/)mise\\.toml$/',
+      ],
       matchStrings: [
-        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: registryUrl=(?<registryUrl>\\S+))?\\n\\S+ = \"(?<currentValue>[^\"]+)\"",
+        '# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: registryUrl=(?<registryUrl>\\S+))?\\n\\S+ = "(?<currentValue>[^"]+)"',
       ],
     },
   ],
-
   packageRules: [
     {
-      description: "Go modules and the Go toolchain are compiled into the binary, so an update calls for a patch release",
-      matchManagers: ["gomod"],
-      semanticCommitType: "fix",
+      description: 'Go modules and the Go toolchain are compiled into the binary, so an update calls for a patch release',
+      matchManagers: [
+        'gomod',
+      ],
+      semanticCommitType: 'fix',
     },
     {
-      description: "One pull request per kind of dependency for minor and patch updates; majors stay separate",
-      matchManagers: ["gomod"],
-      matchUpdateTypes: ["minor", "patch", "digest"],
-      groupName: "Go modules",
+      description: 'One pull request per kind of dependency for minor and patch updates; majors stay separate',
+      matchManagers: [
+        'gomod',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+        'digest',
+      ],
+      groupName: 'Go modules',
     },
     {
-      matchManagers: ["mise"],
-      matchUpdateTypes: ["minor", "patch"],
-      groupName: "development tools",
+      matchManagers: [
+        'mise',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
+      groupName: 'development tools',
     },
     {
-      description: "Tools and mise itself wait a few days after release, so their binaries exist when the lockfiles are generated. Python is built by python-build-standalone after CPython tags a release; without the wait, a lockfile loses its download URLs and every locked CI job fails. Three days is a starting value, not a measured one",
-      matchManagers: ["mise"],
-      minimumReleaseAge: "3 days",
+      description: 'Tools and mise itself wait a few days after release, so their binaries exist when the lockfiles are generated. Python is built by python-build-standalone after CPython tags a release; without the wait, a lockfile loses its download URLs and every locked CI job fails. Three days is a starting value, not a measured one',
+      matchManagers: [
+        'mise',
+      ],
+      minimumReleaseAge: '3 days',
     },
     {
-      description: "The mise version pin in the workflows is downloaded from a GitHub release",
-      matchManagers: ["custom.regex"],
-      matchDepNames: ["jdx/mise"],
-      minimumReleaseAge: "3 days",
+      description: 'The mise version pin in the workflows is downloaded from a GitHub release',
+      matchManagers: [
+        'custom.regex',
+      ],
+      matchDepNames: [
+        'jdx/mise',
+      ],
+      minimumReleaseAge: '3 days',
     },
     {
-      description: "mise itself goes with the tools it installs",
-      matchManagers: ["custom.regex"],
-      matchDepNames: ["jdx/mise"],
-      matchUpdateTypes: ["minor", "patch"],
-      groupName: "development tools",
+      description: 'mise itself goes with the tools it installs',
+      matchManagers: [
+        'custom.regex',
+      ],
+      matchDepNames: [
+        'jdx/mise',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
+      groupName: 'development tools',
     },
     {
-      description: "The charts the e2e suite installs are test infrastructure, not shipped",
-      matchManagers: ["custom.regex"],
-      matchDepNames: ["quay.io/jetstack/charts/cert-manager", "workload-identity-webhook"],
-      groupName: "e2e test infrastructure",
+      description: 'The charts the e2e suite installs are test infrastructure, not shipped',
+      matchManagers: [
+        'custom.regex',
+      ],
+      matchDepNames: [
+        'quay.io/jetstack/charts/cert-manager',
+        'workload-identity-webhook',
+      ],
+      groupName: 'e2e test infrastructure',
     },
     {
-      matchManagers: ["github-actions"],
-      matchUpdateTypes: ["minor", "patch", "digest", "pinDigest"],
-      groupName: "GitHub Actions",
+      matchManagers: [
+        'github-actions',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+        'digest',
+        'pinDigest',
+      ],
+      groupName: 'GitHub Actions',
     },
     {
-      matchManagers: ["pre-commit"],
-      matchUpdateTypes: ["minor", "patch"],
-      groupName: "pre-commit hooks",
+      matchManagers: [
+        'pre-commit',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
+      groupName: 'pre-commit hooks',
     },
     {
-      matchManagers: ["terraform"],
-      matchUpdateTypes: ["minor", "patch"],
-      groupName: "Terraform providers",
+      matchManagers: [
+        'terraform',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
+      groupName: 'Terraform providers',
     },
   ],
 }
