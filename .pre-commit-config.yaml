@@ -39,7 +39,7 @@ repos:
         name: detect private keys
 
   - repo: https://github.com/renovatebot/pre-commit-hooks
-    rev: 44.184.0
+    rev: 44.259.1
     hooks:
       - id: renovate-config-validator
         name: renovate config validator
